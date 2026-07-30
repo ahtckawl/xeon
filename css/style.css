@@ -154,3 +154,161 @@ body {
   min-height: 16px;
   margin: 4px 0 0;
 }
+
+/* ===================== 방(게임) 화면 ===================== */
+
+.waiting-wrap {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.room-title { font-size: 20px; margin: 0 0 8px; }
+.room-rule-summary { font-size: 13px; color: #999; margin: 0 0 24px; }
+.waiting-status { font-size: 14px; color: #ccc; margin-bottom: 24px; }
+
+.ready-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.ready-label { font-size: 13px; color: #888; }
+
+.game-wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px 12px 60px;
+}
+
+.game-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.left-col {
+  display: flex;
+  flex-direction: column;
+  padding-top: 40px;
+}
+
+.resign-btn {
+  background: #4a2a2a;
+  color: #ffb3b3;
+}
+
+.board-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.player-row {
+  width: 480px;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.player-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #ccc;
+  transform-origin: center;
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.player-name.turn-active {
+  transform: scale(1.25);
+  color: #fff;
+}
+
+.player-time { font-size: 13px; color: #888; }
+
+.chess-board {
+  display: grid;
+  grid-template-columns: repeat(8, 60px);
+  grid-template-rows: repeat(8, 60px);
+  border: 4px solid #363431;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.cell {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 38px;
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+}
+
+.white-cell { background-color: #ebecd0; color: #000; }
+.black-cell { background-color: #739552; color: #000; }
+
+.possible-move::after {
+  content: '';
+  width: 18px;
+  height: 18px;
+  background-color: rgba(20, 85, 30, 0.5);
+  border-radius: 50%;
+  position: absolute;
+}
+
+.possible-capture { background-color: #e57373 !important; }
+.selected { background-color: #bbc742 !important; }
+.last-move { box-shadow: inset 0 0 0 4px rgba(76, 141, 255, 0.75); }
+
+.game-status { font-size: 13px; color: #999; margin-top: 4px; }
+
+.right-col {
+  width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-panel {
+  height: 480px;
+  aspect-ratio: 1 / 3;
+  overflow-y: auto;
+  background: #262421;
+  border: 1px solid #363431;
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.log-btn {
+  background: #312e2b;
+  color: #e0e0e0;
+  border: 1px solid #403d39;
+  padding: 5px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.log-btn.active { background: #bbc742; color: #000; border-color: #bbc742; font-weight: bold; }
+
+.history-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nav-btn { flex: 1; }
+
+.full-width-btn { width: 100%; }
