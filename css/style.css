@@ -1,0 +1,156 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  background: #1e1e24;
+  color: #eee;
+}
+
+.lobby-wrap {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px 16px 80px;
+}
+
+.lobby-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.lobby-header h1 {
+  font-size: 22px;
+  margin: 0;
+}
+
+.btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: none;
+  background: #33333d;
+  color: #eee;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: #4c8dff;
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.room-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.room-item {
+  background: #2a2a33;
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.15s;
+}
+
+.room-item:active {
+  background: #35353f;
+}
+
+.room-item.playing {
+  background: #232328;
+  color: #999;
+}
+
+.room-info { display: flex; flex-direction: column; gap: 4px; }
+
+.room-name { font-size: 16px; font-weight: 600; }
+.room-item.playing .room-name { color: #aaa; }
+
+.room-sub { font-size: 12px; color: #888; }
+
+.room-status-badge {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #3a3a44;
+  color: #ccc;
+}
+.room-item.playing .room-status-badge { background: #3a3a3a; color: #888; }
+
+.empty-msg {
+  text-align: center;
+  color: #777;
+  margin-top: 60px;
+  font-size: 14px;
+}
+
+/* 모달 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 16px;
+}
+
+.modal {
+  background: #2a2a33;
+  border-radius: 16px;
+  padding: 22px;
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.modal label {
+  font-size: 12px;
+  color: #999;
+  margin-top: 8px;
+}
+
+.modal input, .modal select {
+  background: #1e1e24;
+  border: 1px solid #444;
+  color: #eee;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.error-msg {
+  color: #ff6b6b;
+  font-size: 12px;
+  min-height: 16px;
+  margin: 4px 0 0;
+}
