@@ -47,6 +47,23 @@
       <option value="-1">무제한</option>
     </select>
 
+    <label>시간 설정</label>
+    <select id="timePresetInput">
+      <option value="unlimited">무제한</option>
+      <option value="60">1분 (불릿)</option>
+      <option value="180">3분 (블리츠)</option>
+      <option value="600">10분 (래피드)</option>
+      <option value="custom">직접 입력</option>
+    </select>
+
+    <div id="customTimeGroup" style="display:none;">
+      <label>기본 시간(분)</label>
+      <input id="customMinInput" type="number" min="1" value="5">
+    </div>
+
+    <label>턴당 추가시간(초)</label>
+    <input id="incrementSecInput" type="number" min="0" value="0">
+
     <div class="modal-actions">
       <button id="cancelCreateBtn" class="btn">취소</button>
       <button id="confirmCreateBtn" class="btn primary">생성하고 입장</button>
