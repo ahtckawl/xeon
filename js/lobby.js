@@ -55,7 +55,9 @@ function renderRoomList() {
     li.className = "room-item" + (room.status === "playing" ? " playing" : "");
 
     const undoLabel = room.undoLimit === -1 ? "무제한" : `${room.undoLimit}회`;
-    const subText = `선공: ${FIRST_MOVE_LABEL[room.firstMoveRule] || "무작위"} · 무르기 ${undoLabel}${room.hasPassword ? " · 🔒" : ""}`;
+    const tc = room.timeControl || {};
+    const timeLabel = tc.presetSeconds ? `${Math.floor(tc.presetSeconds / 60)}분${tc.incrementSeconds ? `+${tc.incrementSeconds}초` : ""}` : "무제한";
+    const subText = `선공: ${FIRST_MOVE_LABEL[room.firstMoveRule] || "무작위"} · 무르기 ${undoLabel} · 시간 ${timeLabel}${room.hasPassword ? " · 🔒" : ""}`;
     const statusLabel = room.status === "waiting" ? "대기중" : room.status === "playing" ? "게임중(관전 가능)" : "종료";
 
     li.innerHTML = `
@@ -90,7 +92,15 @@ function bindUI() {
     document.getElementById("roomPasswordInput").value = "";
     document.getElementById("firstMoveRuleInput").value = "random";
     document.getElementById("undoLimitInput").value = "0";
+    document.getElementById("timePresetInput").value = "unlimited";
+    document.getElementById("customMinInput").value = "5";
+    document.getElementById("incrementSecInput").value = "0";
+    document.getElementById("customTimeGroup").style.display = "none";
     createModal.style.display = "flex";
+  });
+
+  document.getElementById("timePresetInput").addEventListener("change", (e) => {
+    document.getElementById("customTimeGroup").style.display = e.target.value === "custom" ? "block" : "none";
   });
 
   cancelCreateBtn.addEventListener("click", () => (createModal.style.display = "none"));
@@ -110,6 +120,16 @@ async function handleCreateRoom() {
   const password = document.getElementById("roomPasswordInput").value;
   const firstMoveRule = document.getElementById("firstMoveRuleInput").value;
   const undoLimit = parseInt(document.getElementById("undoLimitInput").value, 10);
+
+  const timePreset = document.getElementById("timePresetInput").value;
+  const incrementSeconds = parseInt(document.getElementById("incrementSecInput").value, 10) || 0;
+  let presetSeconds = null; // null = 무제한
+  if (timePreset === "custom") {
+    const mins = parseInt(document.getElementById("customMinInput").value, 10) || 5;
+    presetSeconds = mins * 60;
+  } else if (timePreset !== "unlimited") {
+    presetSeconds = parseInt(timePreset, 10);
+  }
 
   if (!name) {
     createError.textContent = "방 이름을 입력해주세요.";
@@ -131,6 +151,7 @@ async function handleCreateRoom() {
       spectatorCount: 0,
       firstMoveRule,
       undoLimit,
+      timeControl: { presetSeconds, incrementSeconds },
       hasPassword,
       passwordHash,
       hostReady: false,
