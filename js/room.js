@@ -33,6 +33,7 @@ let myColor = null;       // 'white' | 'black' | null(관전자)
 
 // 로컬 히스토리 열람 인덱스 (서버 상태와 별개, 보기 전용)
 let viewIndex = 0;
+let followLatest = true; // true면 새 수가 생길 때마다 자동으로 최신 수로 이동
 let prevTurnForAnim = null;
 
 /* =========================================================
@@ -121,15 +122,22 @@ async function joinAsRole(initialData) {
 ========================================================= */
 function bindUI() {
   readyBtn.addEventListener("click", handleReadyClick);
-  prevBtn.addEventListener("click", () => { viewIndex = Math.max(0, viewIndex - 1); renderBoardAndLog(); });
+  prevBtn.addEventListener("click", () => {
+    viewIndex = Math.max(0, viewIndex - 1);
+    const hist = room.moveHistory || [];
+    followLatest = viewIndex === hist.length - 1;
+    renderBoardAndLog();
+  });
   nextBtn.addEventListener("click", () => {
     const hist = room.moveHistory || [];
     viewIndex = Math.min(hist.length - 1, viewIndex + 1);
+    followLatest = viewIndex === hist.length - 1;
     renderBoardAndLog();
   });
   latestBtn.addEventListener("click", () => {
     const hist = room.moveHistory || [];
     viewIndex = hist.length - 1;
+    followLatest = true;
     renderBoardAndLog();
   });
 }
@@ -219,7 +227,11 @@ function render() {
   gamePhase.style.display = "block";
 
   const hist = room.moveHistory || [];
-  if (viewIndex > hist.length - 1) viewIndex = hist.length - 1;
+  if (followLatest) {
+    viewIndex = hist.length - 1;
+  } else if (viewIndex > hist.length - 1) {
+    viewIndex = hist.length - 1;
+  }
   if (viewIndex < 0) viewIndex = 0;
 
   renderNames();
@@ -407,7 +419,11 @@ function renderLog(hist) {
     btn.className = "log-btn" + (index === viewIndex ? " active" : "");
     const turnNum = Math.ceil(index / 2);
     btn.textContent = `${turnNum}. ${item.label}`;
-    btn.addEventListener("click", () => { viewIndex = index; renderBoardAndLog(); });
+    btn.addEventListener("click", () => {
+      viewIndex = index;
+      followLatest = viewIndex === hist.length - 1;
+      renderBoardAndLog();
+    });
     logPanelEl.appendChild(btn);
   });
   logPanelEl.scrollTop = logPanelEl.scrollHeight;
