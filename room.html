@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>xeon 체스 - 방</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- 대기(준비) 화면 -->
+<div id="waitingPhase" class="waiting-wrap">
+  <h1 id="roomTitle" class="room-title"></h1>
+  <p id="roomRuleSummary" class="room-rule-summary"></p>
+  <p id="waitingStatus" class="waiting-status"></p>
+
+  <div class="ready-box">
+    <span id="myReadyLabel" class="ready-label"></span>
+    <button id="readyBtn" class="btn primary">준비</button>
+  </div>
+</div>
+
+<!-- 게임 화면 -->
+<div id="gamePhase" class="game-wrap" style="display:none;">
+  <div class="game-layout">
+
+    <div class="left-col">
+      <button id="resignBtn" class="btn resign-btn">기권</button>
+    </div>
+
+    <div class="board-col">
+      <div class="player-row">
+        <span id="opponentName" class="player-name">상대</span>
+        <span id="opponentTime" class="player-time"></span>
+      </div>
+
+      <div id="board" class="chess-board"></div>
+
+      <div class="player-row">
+        <span id="myName" class="player-name">나</span>
+        <span id="myTime" class="player-time"></span>
+      </div>
+
+      <p id="gameStatus" class="game-status"></p>
+    </div>
+
+    <div class="right-col">
+      <div id="logPanel" class="log-panel"></div>
+      <div class="history-nav">
+        <button id="prevBtn" class="btn nav-btn">◀ 이전</button>
+        <button id="nextBtn" class="btn nav-btn">다음 ▶</button>
+      </div>
+      <button id="latestBtn" class="btn full-width-btn">최신 수로 이동</button>
+      <button id="undoRequestBtn" class="btn full-width-btn" disabled title="다음 단계에서 구현 예정">
+        무르기 요청
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<script type="module" src="js/room.js"></script>
+</body>
+</html>
