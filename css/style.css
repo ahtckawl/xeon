@@ -312,3 +312,40 @@ body {
 .nav-btn { flex: 1; }
 
 .full-width-btn { width: 100%; }
+
+/* ===================== 관리자 기능 ===================== */
+
+.admin-corner {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  z-index: 999;
+  cursor: default;
+  background: transparent;
+}
+
+.room-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.room-delete-btn {
+  background: #4a2a2a;
+  color: #ff8a8a;
+  border: none;
+  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.admin-delete-btn {
+  margin-top: 8px;
+  background: #4a2a2a;
+  color: #ff8a8a;
+  font-size: 12px;
+}
