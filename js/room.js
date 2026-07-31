@@ -2,7 +2,7 @@ import { db, ensureSignedIn } from "./firebase-config.js";
 import { doc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { isAdmin, promptAdminLogin, getAdminPassword } from "./admin.js";
 import { callApi } from "./api.js";
-import { Chess } from "https://esm.sh/chess.js@1.0.0-beta.8";
+import { Chess } from "https://esm.sh/chess.js@1.4.0";
 
 /* =========================================================
    기본 세팅
@@ -210,12 +210,18 @@ async function joinAsRole(initialData) {
   if (initialData.hostId === currentUser.uid) { myRole = "host"; return; }
   if (initialData.challengerId === currentUser.uid) { myRole = "challenger"; return; }
   if (!initialData.challengerId) {
-    try {
-      const res = await callApi("/api/join", { roomId });
-      myRole = res.role;
-      return;
-    } catch (e) {
-      console.error(e);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await callApi("/api/join", { roomId });
+        myRole = res.role;
+        return;
+      } catch (e) {
+        console.error("[join 실패]", e);
+        if (attempt === 1) {
+          // 원인(인증 실패 / CORS / 네트워크)을 바로 알 수 있도록 조용히 넘어가지 않고 알려줌
+          alert("입장 처리에 실패해서 일단 관전자로 들어가요.\n" + e.message);
+        }
+      }
     }
   }
   myRole = "spectator";
