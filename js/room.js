@@ -1,7 +1,11 @@
-import { db, ensureSignedIn } from "./firebase-config.js";
+import { db, rtdb, ensureSignedIn } from "./firebase-config.js";
 import {
-  doc, getDoc, onSnapshot, runTransaction, serverTimestamp
+  doc, getDoc, onSnapshot, runTransaction, deleteDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import {
+  ref, onValue, onDisconnect, set, serverTimestamp as rtdbServerTimestamp
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+import { isAdmin, promptAdminLogin } from "./admin.js";
 
 /* =========================================================
    기본 세팅
@@ -36,6 +40,10 @@ let viewIndex = 0;
 let followLatest = true; // true면 새 수가 생길 때마다 자동으로 최신 수로 이동
 let prevTurnForAnim = null;
 
+let roomGoneHandled = false;   // 방이 삭제됐을 때 중복 처리 방지
+let opponentGoneHandled = false; // 상대 연결 끊김 처리 중복 방지
+let latestOppPresence = null;
+
 /* =========================================================
    DOM 참조
 ========================================================= */
@@ -45,6 +53,7 @@ const roomTitleEl = document.getElementById("roomTitle");
 const roomRuleSummaryEl = document.getElementById("roomRuleSummary");
 const myReadyLabelEl = document.getElementById("myReadyLabel");
 const readyBtn = document.getElementById("readyBtn");
+const leaveWaitingBtn = document.getElementById("leaveWaitingBtn");
 const waitingStatusEl = document.getElementById("waitingStatus");
 
 const boardEl = document.getElementById("board");
@@ -53,6 +62,10 @@ const opponentTimeEl = document.getElementById("opponentTime");
 const myNameEl = document.getElementById("myName");
 const myTimeEl = document.getElementById("myTime");
 const statusEl = document.getElementById("gameStatus");
+
+const resignBtn = document.getElementById("resignBtn");
+const adminDeleteBtn = document.getElementById("adminDeleteBtn");
+const adminCornerEl = document.getElementById("adminCorner");
 
 const logPanelEl = document.getElementById("logPanel");
 const prevBtn = document.getElementById("prevBtn");
@@ -77,8 +90,17 @@ async function init() {
 
   await joinAsRole(snap.data());
   bindUI();
+  setupPresence();
+  updateAdminUI();
+
   onSnapshot(roomRef, (docSnap) => {
-    if (!docSnap.exists()) return;
+    if (!docSnap.exists()) {
+      if (roomGoneHandled) return;
+      roomGoneHandled = true;
+      alert("삭제된 방입니다");
+      window.location.href = "index.html";
+      return;
+    }
     room = docSnap.data();
     render();
   });
@@ -118,6 +140,120 @@ async function joinAsRole(initialData) {
 }
 
 /* =========================================================
+   접속 상태(presence) 감지 — 탭 닫힘/네트워크 끊김 30초 후 처리
+========================================================= */
+function setupPresence() {
+  if (myRole !== "host" && myRole !== "challenger") return;
+
+  const myPresenceRef = ref(rtdb, `presence/${roomId}/${myRole}`);
+  set(myPresenceRef, { online: true, ts: rtdbServerTimestamp() });
+  onDisconnect(myPresenceRef).set({ online: false, ts: rtdbServerTimestamp() });
+
+  const oppRole = myRole === "host" ? "challenger" : "host";
+  const oppPresenceRef = ref(rtdb, `presence/${roomId}/${oppRole}`);
+  onValue(oppPresenceRef, (snap) => {
+    latestOppPresence = snap.val();
+  });
+
+  setInterval(() => {
+    if (!latestOppPresence || opponentGoneHandled) return;
+    if (latestOppPresence.online === false && typeof latestOppPresence.ts === "number") {
+      const elapsed = Date.now() - latestOppPresence.ts;
+      if (elapsed >= 30000) handleOpponentDisconnected();
+    }
+  }, 3000);
+}
+
+async function handleOpponentDisconnected() {
+  if (opponentGoneHandled) return;
+  opponentGoneHandled = true;
+  try {
+    await runTransaction(db, async (tx) => {
+      const fresh = await tx.get(roomRef);
+      if (!fresh.exists()) return;
+      const data = fresh.data();
+      if (data.status === "waiting") {
+        if (myRole === "host") {
+          // 도전자가 사라짐 -> 슬롯만 리셋
+          tx.update(roomRef, { challengerId: null, challengerReady: false });
+        } else if (myRole === "challenger") {
+          // 방장이 사라짐 -> 방 삭제
+          tx.delete(roomRef);
+        }
+      } else if (data.status === "playing") {
+        tx.update(roomRef, { status: "finished", resultStatus: "left", winner: myColor });
+      }
+    });
+  } catch (e) {
+    console.error(e);
+    opponentGoneHandled = false;
+  }
+}
+
+/* =========================================================
+   나가기 / 기권
+========================================================= */
+async function leaveRoom() {
+  if (myRole === "spectator") {
+    window.location.href = "index.html";
+    return;
+  }
+  try {
+    await runTransaction(db, async (tx) => {
+      const fresh = await tx.get(roomRef);
+      if (!fresh.exists()) return;
+      const data = fresh.data();
+      if (data.status === "waiting") {
+        if (myRole === "host") {
+          tx.delete(roomRef); // 대기중(게임 시작 전) 방장이 나가면 방 즉시 삭제
+        } else {
+          tx.update(roomRef, { challengerId: null, challengerReady: false });
+        }
+      } else if (data.status === "playing") {
+        const winner = myColor === "white" ? "black" : "white";
+        tx.update(roomRef, { status: "finished", resultStatus: "left", winner });
+      }
+      // status === "finished"일 때는 그냥 나가기만 함
+    });
+  } catch (e) {
+    console.error(e);
+  }
+  window.location.href = "index.html";
+}
+
+async function handleResignClick() {
+  if (!room || room.status !== "playing" || myRole === "spectator") return;
+  if (!confirm("정말 기권하시겠어요?")) return;
+  try {
+    await runTransaction(db, async (tx) => {
+      const fresh = await tx.get(roomRef);
+      const data = fresh.data();
+      if (data.status !== "playing") return;
+      const winner = myColor === "white" ? "black" : "white";
+      tx.update(roomRef, { status: "finished", resultStatus: "resign", winner });
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/* =========================================================
+   관리자 모드
+========================================================= */
+function updateAdminUI() {
+  adminDeleteBtn.style.display = isAdmin() ? "inline-block" : "none";
+}
+
+async function handleAdminDelete() {
+  if (!confirm("이 방을 삭제할까요? (관리자)")) return;
+  try {
+    await deleteDoc(roomRef);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/* =========================================================
    준비 버튼
 ========================================================= */
 function bindUI() {
@@ -139,6 +275,13 @@ function bindUI() {
     viewIndex = hist.length - 1;
     followLatest = true;
     renderBoardAndLog();
+  });
+
+  leaveWaitingBtn.addEventListener("click", leaveRoom);
+  resignBtn.addEventListener("click", handleResignClick);
+  adminDeleteBtn.addEventListener("click", handleAdminDelete);
+  adminCornerEl.addEventListener("click", async () => {
+    if (await promptAdminLogin()) updateAdminUI();
   });
 }
 
@@ -255,16 +398,21 @@ function renderWaitingPhase() {
     return;
   }
 
-  const amReady = myRole === "host" ? room.hostReady : room.challengerReady;
-  readyBtn.textContent = amReady ? "✔ 준비 완료" : "준비";
-  readyBtn.disabled = amReady;
+  myReadyLabelEl.style.display = "inline";
   myReadyLabelEl.textContent = myRole === "host" ? "방장 (나)" : "도전자 (나)";
 
-  if (!room.challengerId) {
+  if (myRole === "host" && !room.challengerId) {
+    // 도전자가 아직 없으면 준비 버튼 자체를 숨김
+    readyBtn.style.display = "none";
     waitingStatusEl.textContent = "도전자를 기다리는 중이에요...";
-  } else {
-    waitingStatusEl.textContent = "상대의 준비를 기다리는 중이에요...";
+    return;
   }
+
+  const amReady = myRole === "host" ? room.hostReady : room.challengerReady;
+  readyBtn.style.display = "inline-block";
+  readyBtn.textContent = amReady ? "✔ 준비 완료" : "준비";
+  readyBtn.disabled = amReady;
+  waitingStatusEl.textContent = "상대의 준비를 기다리는 중이에요...";
 }
 
 function renderNames() {
