@@ -121,6 +121,9 @@ async function init() {
   }
 
   await joinAsRole(snap.data());
+  if (myRole === "host" || myRole === "challenger") {
+    localStorage.setItem("xeon_last_room", roomId);
+  }
   buildExtraUI();
   bindUI();
   startHeartbeat();
@@ -132,6 +135,7 @@ async function init() {
     if (!docSnap.exists()) {
       if (roomGoneHandled) return;
       roomGoneHandled = true;
+      localStorage.removeItem("xeon_last_room");
       alert("삭제된 방입니다");
       window.location.href = "index.html";
       return;
@@ -292,6 +296,7 @@ async function leaveRoom() {
     window.location.href = "index.html";
     return;
   }
+  localStorage.removeItem("xeon_last_room");
   try {
     await callApi("/api/leave", { roomId });
   } catch (e) {
@@ -751,6 +756,7 @@ function showResult() {
   document.body.appendChild(resultOverlayEl);
   document.getElementById("resultCloseBtn").addEventListener("click", dismissResultOverlay);
   document.getElementById("resultLeaveBtn").addEventListener("click", () => {
+    localStorage.removeItem("xeon_last_room");
     window.location.href = "index.html";
   });
 }

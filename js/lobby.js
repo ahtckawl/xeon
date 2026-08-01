@@ -35,6 +35,57 @@ async function init() {
   currentUser = await ensureSignedIn();
   subscribeRoomList();
   bindUI();
+  await checkResumableRoom();
+}
+
+/* =========================================================
+   이전에 하던 게임으로 돌아가기
+   - 같은 브라우저(익명 로그인 uid 유지)에서 room.js가 저장해둔
+     localStorage의 마지막 방 id를 확인해서, 아직 유효하면(내가 host/challenger고
+     status가 finished가 아니면) 돌아가기 배너를 보여줌
+========================================================= */
+async function checkResumableRoom() {
+  const lastRoomId = localStorage.getItem("xeon_last_room");
+  if (!lastRoomId) return;
+
+  let snap;
+  try {
+    snap = await getDoc(doc(db, "rooms", lastRoomId));
+  } catch (e) {
+    return; // 네트워크 문제 등이면 그냥 조용히 넘어감(다음에 다시 시도)
+  }
+
+  if (!snap.exists()) {
+    localStorage.removeItem("xeon_last_room");
+    return;
+  }
+  const room = snap.data();
+  const stillMine = room.hostId === currentUser.uid || room.challengerId === currentUser.uid;
+  if (!stillMine || room.status === "finished") {
+    localStorage.removeItem("xeon_last_room");
+    return;
+  }
+
+  showResumeBanner(lastRoomId, room);
+}
+
+function showResumeBanner(roomId, room) {
+  const banner = document.createElement("div");
+  banner.className = "resume-banner";
+  banner.innerHTML = `
+    <span>진행 중이던 "${escapeHtml(room.name)}" 방이 있어요.</span>
+    <button type="button" class="btn primary" id="resumeGoBtn">돌아가기</button>
+    <button type="button" class="btn" id="resumeDismissBtn">닫기</button>
+  `;
+  document.body.insertBefore(banner, document.body.firstChild);
+
+  document.getElementById("resumeGoBtn").addEventListener("click", () => {
+    goToRoom(roomId);
+  });
+  document.getElementById("resumeDismissBtn").addEventListener("click", () => {
+    localStorage.removeItem("xeon_last_room");
+    banner.remove();
+  });
 }
 
 function subscribeRoomList() {
