@@ -125,6 +125,7 @@ async function init() {
   bindUI();
   startHeartbeat();
   startDisconnectWatcher();
+  startIdleWatcher();
   updateAdminUI();
 
   onSnapshot(roomRef, (docSnap) => {
@@ -231,11 +232,39 @@ async function joinAsRole(initialData) {
    접속 상태 — Firestore 하트비트 + 서버 검증 기반 끊김 감지
    (클라이언트가 "상대 끊겼다"고 주장해도, 서버가 하트비트 타임스탬프로 직접 재확인함)
 ========================================================= */
+let hasActivitySinceHeartbeat = true; // 입장 직후는 활동으로 간주(최초 기준시각 설정용)
+document.addEventListener("click", () => { hasActivitySinceHeartbeat = true; }, { passive: true });
+
 function startHeartbeat() {
   if (myRole !== "host" && myRole !== "challenger") return;
-  const send = () => callApi("/api/heartbeat", { roomId }).catch(() => {});
+  const send = () => {
+    const active = hasActivitySinceHeartbeat;
+    hasActivitySinceHeartbeat = false;
+    callApi("/api/heartbeat", { roomId, active }).catch(() => {});
+  };
   send();
   setInterval(send, 5000);
+}
+
+let idleClaimInFlight = false;
+function startIdleWatcher() {
+  if (myRole !== "host" && myRole !== "challenger") return;
+  setInterval(() => {
+    if (!room || idleClaimInFlight || room.status === "finished") return;
+    const now = Date.now();
+    const isStale = (field, requiredId) => {
+      if (!requiredId) return false; // 아직 아무도 안 들어온 자리는 방치로 안 침
+      const t = room[field] ? Date.parse(room[field]) : null;
+      return !t || now - t > 10 * 60 * 1000; // 10분
+    };
+    const hostIdle = isStale("hostLastActionAt", room.hostId);
+    const challengerIdle = isStale("challengerLastActionAt", room.challengerId);
+    if (!hostIdle && !challengerIdle) return;
+    idleClaimInFlight = true;
+    callApi("/api/claim-idle", { roomId })
+      .catch(() => {})
+      .finally(() => { idleClaimInFlight = false; });
+  }, 15000);
 }
 
 let disconnectClaimInFlight = false;
