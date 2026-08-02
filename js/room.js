@@ -1,8 +1,9 @@
-import { db, ensureSignedIn } from "./firebase-config.js";
+import { db, ensureSignedIn, auth, WORKER_BASE_URL } from "./firebase-config.js";
 import { doc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { isAdmin, promptAdminLogin, getAdminPassword } from "./admin.js";
 import { callApi } from "./api.js";
 import { Chess } from "https://esm.sh/chess.js@1.4.0";
+import { getAIMove, uciToCoords } from "./ai-engine.js";
 
 /* =========================================================
    기본 세팅
@@ -239,9 +240,14 @@ async function joinAsRole(initialData) {
 let hasActivitySinceHeartbeat = true; // 입장 직후는 활동으로 간주(최초 기준시각 설정용)
 document.addEventListener("click", () => { hasActivitySinceHeartbeat = true; }, { passive: true });
 
+let lastKnownIdToken = null;
+
 function startHeartbeat() {
   if (myRole !== "host" && myRole !== "challenger") return;
-  const send = () => {
+  const send = async () => {
+    if (auth.currentUser) {
+      try { lastKnownIdToken = await auth.currentUser.getIdToken(); } catch (e) {}
+    }
     const active = hasActivitySinceHeartbeat;
     hasActivitySinceHeartbeat = false;
     callApi("/api/heartbeat", { roomId, active }).catch(() => {});
@@ -249,6 +255,17 @@ function startHeartbeat() {
   send();
   setInterval(send, 5000);
 }
+
+// 탭을 그냥 닫거나 새로고침/뒤로가기 하는 경우: "나가기" 버튼과 달리 콜백을 기다려줄 수
+// 없으니, 브라우저가 보장해주는 sendBeacon으로 /api/leave를 쏴서 최대한 즉시 처리되게 함.
+// (100% 보장은 아니지만 일반적인 탭 닫기/새로고침에서는 잘 동작함)
+function leaveBeaconOnUnload() {
+  if (myRole !== "host" && myRole !== "challenger") return;
+  if (!lastKnownIdToken) return;
+  const payload = JSON.stringify({ roomId, idToken: lastKnownIdToken });
+  navigator.sendBeacon(`${WORKER_BASE_URL}/api/leave`, new Blob([payload], { type: "application/json" }));
+}
+window.addEventListener("pagehide", leaveBeaconOnUnload);
 
 let idleClaimInFlight = false;
 function startIdleWatcher() {
@@ -340,12 +357,14 @@ function bindUI() {
     viewIndex = Math.max(0, viewIndex - 1);
     followLatest = viewIndex === (room.moves || []).length;
     renderBoardAndLog();
+    recordHistoryAction("prev");
   });
   nextBtn.addEventListener("click", () => {
     const total = (room.moves || []).length;
     viewIndex = Math.min(total, viewIndex + 1);
     followLatest = viewIndex === total;
     renderBoardAndLog();
+    recordHistoryAction("next");
   });
   latestBtn.addEventListener("click", () => {
     viewIndex = (room.moves || []).length;
@@ -633,8 +652,53 @@ async function claimTimeout() {
 }
 
 /* =========================================================
-   보드 / 로그 렌더링
+   AI(Stockfish) 힌트 모드 — 완전히 클라이언트(내 화면)에만 존재하는 기능.
+   room 문서에 저장하지 않으므로 상대방/서버는 이 상태를 전혀 모름.
+   - 기보 이전/다음 버튼을 "뒤앞앞뒤앞뒤" 순서로 누르면 켜짐/꺼짐 토글.
+   - 켜져 있고 내 차례일 때, 스톡피시가 현재 fen을 분석해서 추천수를 계산.
+   - 추천하는 기물이 있는 칸은 파란색으로, 그 기물을 선택했을 때 보이는
+     이동 가능 칸들 중 추천 칸 하나만 반투명 빨간 원(나머지는 기존 초록 원)으로 표시.
 ========================================================= */
+let aiHintEnabled = false;
+let aiSuggestion = null;       // { from:{r,c}, to:{r,c} } | null
+let aiSuggestionForFen = null; // 마지막으로 계산한 fen (턴이 바뀌면 다시 계산하기 위함)
+let aiComputing = false;
+let aiCodeBuffer = [];
+const AI_SECRET_CODE = ["prev", "next", "next", "prev", "next", "prev"]; // 뒤앞앞뒤앞뒤
+
+function recordHistoryAction(action) {
+  aiCodeBuffer.push(action);
+  if (aiCodeBuffer.length > AI_SECRET_CODE.length) aiCodeBuffer.shift();
+  if (
+    aiCodeBuffer.length === AI_SECRET_CODE.length &&
+    aiCodeBuffer.every((v, i) => v === AI_SECRET_CODE[i])
+  ) {
+    aiHintEnabled = !aiHintEnabled;
+    aiSuggestion = null;
+    aiSuggestionForFen = null;
+    aiCodeBuffer = [];
+    renderBoardAndLog();
+  }
+}
+
+async function updateAiSuggestionIfNeeded(isMyTurnNow) {
+  if (!aiHintEnabled || !isMyTurnNow || !room || aiComputing) return;
+  if (aiSuggestionForFen === room.fen) return; // 이미 이 상태에서 계산해둠
+  aiComputing = true;
+  const fenAtRequest = room.fen;
+  try {
+    const moveStr = await getAIMove(fenAtRequest);
+    aiSuggestion = uciToCoords(moveStr);
+    aiSuggestionForFen = fenAtRequest;
+  } catch (e) {
+    console.error("[AI 힌트 계산 실패]", e);
+  } finally {
+    aiComputing = false;
+    if (room && room.fen === fenAtRequest) renderBoardAndLog();
+  }
+}
+
+
 function renderBoardAndLog() {
   const total = (room.moves || []).length;
   const boardGrid = history.boards[viewIndex] ?? history.boards[history.boards.length - 1];
@@ -644,9 +708,12 @@ function renderBoardAndLog() {
 
   drawBoard(boardGrid, lastMove, isMyTurnNow);
   renderLog(total);
+  updateAiSuggestionIfNeeded(isMyTurnNow);
 
-  prevBtn.disabled = viewIndex === 0;
-  nextBtn.disabled = viewIndex === total;
+  // 실제 disabled 속성을 쓰면 클릭 자체가 안 먹혀서(브라우저 기본 동작) 비밀 코드 감지가 안 됨.
+  // 그래서 진짜로 비활성화하지 않고, 눌리지 않는 것처럼 "보이기만" 하도록 클래스만 토글함.
+  prevBtn.classList.toggle("look-disabled", viewIndex === 0);
+  nextBtn.classList.toggle("look-disabled", viewIndex === total);
   latestBtn.disabled = isLatest;
 }
 
@@ -675,10 +742,20 @@ function drawBoard(boardGrid, lastMove, isMyTurnNow) {
         cell.classList.add("selected");
       }
 
+      // AI 힌트: 이 칸의 기물이 스톡피시 추천 기물이면 파란색으로(나에게만 보임)
+      if (aiHintEnabled && isMyTurnNow && aiSuggestion && aiSuggestion.from.r === r && aiSuggestion.from.c === c) {
+        cell.classList.add("ai-suggest-piece");
+      }
+
       if (isMyTurnNow) {
         const isPossible = possibleMoves.some(m => m.r === r && m.c === c);
         if (isPossible) {
-          cell.classList.add(boardGrid[r][c] ? "possible-capture" : "possible-move");
+          const isAiPick = aiHintEnabled && aiSuggestion && aiSuggestion.to.r === r && aiSuggestion.to.c === c;
+          if (isAiPick) {
+            cell.classList.add("possible-move-ai");
+          } else {
+            cell.classList.add(boardGrid[r][c] ? "possible-capture" : "possible-move");
+          }
         }
       }
 
