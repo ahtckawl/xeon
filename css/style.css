@@ -214,6 +214,37 @@ body {
   margin-top: 28px;
 }
 
+/* =========================================================
+   게임 화면 크기 체계
+   - iPad (M3) 11형 가로모드(뷰포트 약 1194 x 834 CSS px)를 "기준 화면"으로 삼아
+     그 비율에서 보드 한 칸(--cell)이 60px이 되도록 잡고, 그 값을 화면의
+     세로/가로 길이에 비례한 clamp()로 계산함. 그래서:
+       - 기준 화면(아이패드 가로)에서는 지금까지와 동일한 60px 보드가 나오고
+       - 그보다 작은 화면(폰 등)에서는 화면 크기에 맞춰 비율대로 줄어듦
+   - 보드/플레이어 줄/드래그 고스트/이동 가능 표시가 전부 이 --cell 하나만
+     바꾸면 같이 줄어들도록 값들을 var(--cell) 기준으로 다시 씀.
+========================================================= */
+:root {
+  --cell: 60px;
+}
+
+/* 가로모드: 세로(vh)가 부족한 게 문제이므로 vh 기준으로 계산.
+   기준화면(834px 높이)에서 60px가 나오도록 7.2vh로 설정 → 계산: 0.072 * 834 ≈ 60px */
+@media (orientation: landscape) {
+  :root {
+    --cell: clamp(26px, 7.2vh, 60px);
+  }
+}
+
+/* 세로모드: 가로(vw)가 부족한 게 문제이므로 vw 기준으로 계산.
+   기준화면(834px 너비, 아이패드 세로)에서도 60px 근처가 나오도록 11vw로 설정,
+   일반 폰 너비(약 390~430px)에서는 자연스럽게 43~47px 정도로 줄어듦 */
+@media (orientation: portrait) {
+  :root {
+    --cell: clamp(30px, 11vw, 60px);
+  }
+}
+
 .game-wrap {
   max-width: 900px;
   margin: 0 auto;
@@ -231,6 +262,7 @@ body {
   display: flex;
   flex-direction: column;
   padding-top: 40px;
+  gap: 8px;
 }
 
 .resign-btn {
@@ -247,7 +279,7 @@ body {
 
 /* 판 위, 왼쪽=방장 / 오른쪽=도전자 (보는 사람과 무관하게 고정) */
 .player-row {
-  width: 480px;
+  width: calc(var(--cell) * 8);
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
@@ -270,7 +302,7 @@ body {
   color: #ccc;
   transform-origin: center;
   transition: transform 0.2s ease, color 0.2s ease;
-  max-width: 220px;
+  max-width: calc(var(--cell) * 3.6);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -288,20 +320,20 @@ body {
 
 .chess-board {
   display: grid;
-  grid-template-columns: repeat(8, 60px);
-  grid-template-rows: repeat(8, 60px);
+  grid-template-columns: repeat(8, var(--cell));
+  grid-template-rows: repeat(8, var(--cell));
   border: 4px solid #363431;
   border-radius: 4px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5);
 }
 
 .cell {
-  width: 60px;
-  height: 60px;
+  width: var(--cell);
+  height: var(--cell);
   display: flex;
   justify-content: center;
   align-items: center;
-  font-size: 38px;
+  font-size: calc(var(--cell) * 0.633);
   cursor: pointer;
   user-select: none;
   position: relative;
@@ -313,8 +345,8 @@ body {
 
 .possible-move::after {
   content: '';
-  width: 18px;
-  height: 18px;
+  width: calc(var(--cell) * 0.3);
+  height: calc(var(--cell) * 0.3);
   background-color: rgba(20, 85, 30, 0.5);
   border-radius: 50%;
   position: absolute;
@@ -328,8 +360,8 @@ body {
 .ai-suggest-piece { box-shadow: inset 0 0 0 999px rgba(64, 132, 255, 0.35); }
 .possible-move-ai::after {
   content: '';
-  width: 18px;
-  height: 18px;
+  width: calc(var(--cell) * 0.3);
+  height: calc(var(--cell) * 0.3);
   background-color: rgba(220, 60, 60, 0.55);
   border-radius: 50%;
   position: absolute;
@@ -342,9 +374,9 @@ body {
   display: none;
   align-items: center;
   justify-content: center;
-  width: 60px;
-  height: 60px;
-  font-size: 38px;
+  width: var(--cell);
+  height: var(--cell);
+  font-size: calc(var(--cell) * 0.633);
   pointer-events: none;
   transform: translate(-50%, -50%);
   z-index: 2000;
@@ -407,6 +439,85 @@ body {
 .nav-btn { flex: 1; }
 
 .full-width-btn { width: 100%; }
+
+/* 가로모드: 아이패드(M3) 11형보다 세로 폭이 좁은 화면(폰 가로모드 등)에서
+   오른쪽 로그 패널/기록 칸이 화면을 넘치지 않도록 함께 줄여줌 */
+@media (orientation: landscape) {
+  .right-col {
+    width: clamp(96px, 20vw, 160px);
+  }
+  .log-panel {
+    height: clamp(180px, 60vh, 480px);
+  }
+  .left-col {
+    padding-top: clamp(8px, 4vh, 40px);
+  }
+}
+
+/* =========================================================
+   세로모드 전용 레이아웃
+   - 로그(log-panel)는 숨김
+   - 보드를 맨 위로, 그 아래에 기권/관리자 삭제 버튼을 가로로 배치
+   - 다시 그 아래에 이전/다음/최신수/무르기 버튼을 작게 줄여서 배치
+========================================================= */
+@media (orientation: portrait) {
+  .game-wrap {
+    padding: 8px 8px 30px;
+  }
+
+  .game-layout {
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .board-col {
+    order: 1;
+    width: 100%;
+  }
+
+  .left-col {
+    order: 2;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    padding-top: 0;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .right-col {
+    order: 3;
+    width: min(100%, calc(var(--cell) * 8));
+  }
+
+  .log-panel {
+    display: none;
+  }
+
+  .resign-btn, .admin-delete-btn {
+    margin-top: 0;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .player-name {
+    font-size: 13px;
+  }
+
+  .player-time {
+    font-size: 11px;
+  }
+
+  .history-nav {
+    gap: 6px;
+  }
+
+  .nav-btn, #latestBtn, #undoRequestBtn {
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+}
 
 /* ===================== 관리자 기능 ===================== */
 
