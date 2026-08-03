@@ -46,10 +46,15 @@ async function init() {
   renderAuthCorner();
   onAuthChange(() => renderAuthCorner()); // 구글 연결/전환/로그아웃마다 UI 갱신
   buildProfileBox();
-  await ensureUserProfile();
-  subscribeProfile();
+
+  // 방 목록 구독/버튼 연결은 rooms 컬렉션이 누구나 읽기 가능하고 currentUser에도
+  // 의존하지 않으므로, 프로필 초기화(서버 왕복)를 기다리지 않고 바로 시작함
+  // — 그래야 로비가 뜨자마자 방 목록/방 생성 버튼이 곧바로 반응함.
   subscribeRoomList();
   bindUI();
+
+  await ensureUserProfile();
+  subscribeProfile();
   await checkResumableRoom();
 }
 

@@ -77,6 +77,10 @@ const fenEvalCache = new Map(); // fen -> 백 기준 센티폰 평가(또는 nul
 let qualityComputeChain = Promise.resolve();
 let lastKnownTotalForQuality = 0;
 
+// 준비 버튼: 서버 응답 기다리지 않고 누르자마자 체크 표시를 보여주기 위한 낙관적 상태.
+// 다음 실제 onSnapshot이 도착하면(성공/실패/재대국 리셋 등 어떤 경우든) 곧바로 초기화됨.
+let optimisticReady = false;
+
 let viewIndex = 0;
 let followLatest = true;
 let roomGoneHandled = false;
@@ -170,6 +174,7 @@ async function init() {
       return;
     }
     room = docSnap.data();
+    optimisticReady = false; // 실제 상태가 왔으니 낙관적 추측은 더 이상 필요 없음
     const newTotal = (room.moves || []).length;
     if (newTotal < lastKnownTotalForQuality) {
       // 무르기나 재대국으로 수가 줄어들면, 그 이후 인덱스에 계산해둔 품질 표시는 더 이상 유효하지 않음
@@ -441,11 +446,16 @@ function bindUI() {
 async function handleReadyClick() {
   if (myRole !== "host" && myRole !== "challenger") return;
   readyBtn.disabled = true;
+  optimisticReady = true;
+  renderWaitingPhase(); // 서버 응답 기다리지 않고 바로 체크 표시
   try {
     await callApi("/api/ready", { roomId, ready: true });
   } catch (e) {
     console.error(e);
+    optimisticReady = false;
     readyBtn.disabled = false;
+    renderWaitingPhase();
+    alert("준비 처리에 실패했어요: " + (e.message || "다시 시도해주세요"));
   }
 }
 
@@ -622,8 +632,8 @@ function renderWaitingPhase() {
   ensureProfileSubscriptions();
   waitingHostNameEl.textContent = hostNickname || "방장";
   waitingChallengerNameEl.textContent = room.challengerId ? (challengerNickname || "도전자") : "대기중...";
-  waitingHostCheckEl.style.display = room.hostReady ? "inline" : "none";
-  waitingChallengerCheckEl.style.display = room.challengerReady ? "inline" : "none";
+  waitingHostCheckEl.style.display = (room.hostReady || (myRole === "host" && optimisticReady)) ? "inline" : "none";
+  waitingChallengerCheckEl.style.display = (room.challengerReady || (myRole === "challenger" && optimisticReady)) ? "inline" : "none";
 
   if (myRole === "spectator") {
     waitingStatusEl.textContent = "게임이 시작되기를 기다리는 중이에요 (관전자)";
@@ -637,7 +647,7 @@ function renderWaitingPhase() {
     return;
   }
 
-  const amReady = myRole === "host" ? room.hostReady : room.challengerReady;
+  const amReady = (myRole === "host" ? room.hostReady : room.challengerReady) || optimisticReady;
   // 준비를 누르면 버튼이 사라지고, 대신 내 이름 바로 아래 체크 표시가 뜸
   readyBtn.style.display = amReady ? "none" : "inline-block";
   readyBtn.disabled = false;
@@ -1193,18 +1203,53 @@ async function submitMove(fromR, fromC, toR, toC) {
   const to = squareName(toR, toC);
 
   let needsPromotion = false;
+  let optimisticGame = null;
   try {
-    const liveChess = new Chess(room.fen);
-    const verboseMoves = liveChess.moves({ square: from, verbose: true });
+    optimisticGame = new Chess(room.fen);
+    const verboseMoves = optimisticGame.moves({ square: from, verbose: true });
     const target = verboseMoves.find(m => m.to === to);
     needsPromotion = !!(target && target.flags && target.flags.includes("p"));
   } catch (e) {
-    // 프로모션 여부 확인 실패해도 서버가 최종 검증하니 무시하고 진행
+    optimisticGame = null;
+  }
+
+  // 낙관적 업데이트: 서버 응답(왕복)을 기다리지 않고 바로 화면에 반영해서 체감 지연을 없앰.
+  // 서버가 최종 검증하는 건 그대로 유지 — 실패하면 catch에서 원래 상태로 되돌림.
+  const prevRoom = room;
+  const prevHistory = history;
+  if (optimisticGame) {
+    try {
+      const mv = optimisticGame.move({ from, to, promotion: needsPromotion ? "q" : undefined });
+      if (mv) {
+        const optimisticMoves = [...(room.moves || []), mv.lan];
+        room = {
+          ...room,
+          fen: optimisticGame.fen(),
+          moves: optimisticMoves,
+          turn: optimisticGame.turn() === "w" ? "white" : "black",
+          lastMove: { from: mv.from, to: mv.to, promotion: mv.promotion || null, san: mv.san },
+        };
+        history = buildHistory(optimisticMoves);
+        viewIndex = optimisticMoves.length;
+        followLatest = true;
+        selectedPos = null;
+        possibleMoves = [];
+        render();
+      }
+    } catch (e) {
+      // 로컬 재현 실패해도(드물게 서버 상태와 어긋난 경우) 그냥 서버 응답만 기다림
+    }
   }
 
   try {
     await callApi("/api/move", { roomId, from, to, promotion: needsPromotion ? "q" : undefined });
+    // 성공하면 곧이어 onSnapshot이 (타이머 등 세부 필드까지 포함한) 진짜 상태로 자연스럽게 덮어씀
   } catch (e) {
     console.error(e);
+    // 서버가 거부한 수라면 낙관적으로 반영했던 걸 실제 상태로 되돌림
+    room = prevRoom;
+    history = prevHistory;
+    render();
+    alert("수를 둘 수 없어요: " + (e.message || "다시 시도해주세요"));
   }
 }
