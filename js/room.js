@@ -3,7 +3,7 @@ import { doc, getDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.1
 import { isAdmin, promptAdminLogin, getAdminPassword } from "./admin.js";
 import { callApi } from "./api.js";
 import { Chess } from "https://esm.sh/chess.js@1.4.0";
-import { getAIMove, uciToCoords } from "./ai-engine.js";
+import { uciToCoords, getPositionEval } from "./ai-engine.js";
 
 /* =========================================================
    기본 세팅
@@ -36,6 +36,7 @@ function buildHistory(movesArr) {
   const boards = [toBoardGrid(chess)];
   const sans = [];
   const lastMoves = [null];
+  const fens = [chess.fen()];
   for (const lan of movesArr || []) {
     const from = lan.slice(0, 2);
     const to = lan.slice(2, 4);
@@ -45,16 +46,36 @@ function buildHistory(movesArr) {
     sans.push(mv ? mv.san : "?");
     boards.push(toBoardGrid(chess));
     lastMoves.push({ from, to });
+    fens.push(chess.fen());
   }
-  return { boards, sans, lastMoves };
+  return { boards, sans, lastMoves, fens };
 }
 
 let currentUser = null;
 let roomRef = null;
 let room = null;
-let history = { boards: [toBoardGrid(new Chess())], sans: [], lastMoves: [null] };
+let history = { boards: [toBoardGrid(new Chess())], sans: [], lastMoves: [null], fens: [new Chess().fen()] };
 let myRole = null;
 let myColor = null;
+
+// 닉네임(users/{uid})과 승/패/무 전적(playerStats/{uid}) — 방장은 항상 왼쪽,
+// 도전자는 항상 오른쪽에 표시하므로 "나/상대"가 아니라 "방장/도전자" 기준으로 구독함
+let hostNickname = null;
+let challengerNickname = null;
+let hostStats = null;
+let challengerStats = null;
+let hostUserUnsub = null;
+let challengerUserUnsub = null;
+let hostStatsUnsub = null;
+let challengerStatsUnsub = null;
+let subscribedHostId = null;
+let subscribedChallengerId = null;
+
+// 수 품질 표시(✅🤫❌❓) — 순전히 내 화면에서만 계산하는 클라이언트 전용 분석
+const moveQuality = new Map(); // ply(1부터) -> 이모지
+const fenEvalCache = new Map(); // fen -> 백 기준 센티폰 평가(또는 null)
+let qualityComputeChain = Promise.resolve();
+let lastKnownTotalForQuality = 0;
 
 let viewIndex = 0;
 let followLatest = true;
@@ -84,16 +105,22 @@ const waitingPhase = document.getElementById("waitingPhase");
 const gamePhase = document.getElementById("gamePhase");
 const roomTitleEl = document.getElementById("roomTitle");
 const roomRuleSummaryEl = document.getElementById("roomRuleSummary");
-const myReadyLabelEl = document.getElementById("myReadyLabel");
 const readyBtn = document.getElementById("readyBtn");
 const leaveWaitingBtn = document.getElementById("leaveWaitingBtn");
 const waitingStatusEl = document.getElementById("waitingStatus");
 
+// 대기 화면: 왼쪽=방장, 오른쪽=도전자, 가운데=준비 버튼
+const waitingHostNameEl = document.getElementById("waitingHostName");
+const waitingHostCheckEl = document.getElementById("waitingHostCheck");
+const waitingChallengerNameEl = document.getElementById("waitingChallengerName");
+const waitingChallengerCheckEl = document.getElementById("waitingChallengerCheck");
+
 const boardEl = document.getElementById("board");
-const opponentNameEl = document.getElementById("opponentName");
-const opponentTimeEl = document.getElementById("opponentTime");
-const myNameEl = document.getElementById("myName");
-const myTimeEl = document.getElementById("myTime");
+// 게임 화면: 왼쪽=방장, 오른쪽=도전자 (보는 사람과 무관하게 항상 같은 배치)
+const hostNameEl = document.getElementById("hostName");
+const hostTimeEl = document.getElementById("hostTime");
+const challengerNameEl = document.getElementById("challengerName");
+const challengerTimeEl = document.getElementById("challengerTime");
 const statusEl = document.getElementById("gameStatus");
 
 const resignBtn = document.getElementById("resignBtn");
@@ -113,6 +140,7 @@ async function init() {
     return;
   }
   currentUser = await ensureSignedIn();
+  callApi("/api/ensure-user", {}).catch((e) => console.error("[프로필 초기화 실패]", e));
   roomRef = doc(db, "rooms", roomId);
 
   const snap = await getDoc(roomRef);
@@ -142,7 +170,16 @@ async function init() {
       return;
     }
     room = docSnap.data();
+    const newTotal = (room.moves || []).length;
+    if (newTotal < lastKnownTotalForQuality) {
+      // 무르기나 재대국으로 수가 줄어들면, 그 이후 인덱스에 계산해둔 품질 표시는 더 이상 유효하지 않음
+      for (const key of Array.from(moveQuality.keys())) {
+        if (key > newTotal) moveQuality.delete(key);
+      }
+    }
+    lastKnownTotalForQuality = newTotal;
     history = buildHistory(room.moves);
+    scheduleQualityAnalysis(newTotal);
     render();
   });
 }
@@ -215,14 +252,33 @@ function buildExtraUI() {
 async function joinAsRole(initialData) {
   if (initialData.hostId === currentUser.uid) { myRole = "host"; return; }
   if (initialData.challengerId === currentUser.uid) { myRole = "challenger"; return; }
+
+  // 비밀번호 방인데 로비를 거치지 않고 URL로 바로 들어온 경우(비밀번호를 아예 안 가지고 있음) —
+  // 서버에 굳이 물어보지 않고 바로 돌려보냄. 관전자로도 들여보내지 않음(비번의 의미가 없어지므로).
+  const sessionKey = `xeon_join_pw_${roomId}`;
+  const storedPassword = sessionStorage.getItem(sessionKey);
+  sessionStorage.removeItem(sessionKey); // 한 번 쓰고 버림(세션에 오래 남겨두지 않음)
+
+  if (initialData.hasPassword && storedPassword === null) {
+    alert("비밀번호가 필요한 방이에요. 로비에서 다시 입장해주세요.");
+    window.location.href = "index.html";
+    return;
+  }
+
   if (!initialData.challengerId) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const res = await callApi("/api/join", { roomId });
+        const res = await callApi("/api/join", { roomId, password: storedPassword || "" });
         myRole = res.role;
         return;
       } catch (e) {
         console.error("[join 실패]", e);
+        if (e.message && e.message.indexOf("비밀번호") !== -1) {
+          // 비밀번호가 틀린 경우엔 재시도할 필요가 없고, 관전자로도 들여보내지 않음
+          alert("비밀번호가 틀렸어요.");
+          window.location.href = "index.html";
+          return;
+        }
         if (attempt === 1) {
           // 원인(인증 실패 / CORS / 네트워크)을 바로 알 수 있도록 조용히 넘어가지 않고 알려줌
           alert("입장 처리에 실패해서 일단 관전자로 들어가요.\n" + e.message);
@@ -230,6 +286,8 @@ async function joinAsRole(initialData) {
       }
     }
   }
+
+  // 비밀번호 방에 이미 두 자리가 다 찬 상태로 들어온 관전자는 비밀번호를 알고 있었으니 통과시킴
   myRole = "spectator";
 }
 
@@ -428,6 +486,8 @@ function render() {
 
   if (room.status === "finished") {
     showResult();
+  } else if (resultOverlayEl) {
+    dismissResultOverlay();
   }
 }
 
@@ -559,15 +619,17 @@ function renderWaitingPhase() {
   const firstMoveLabel = { random: "무작위", host: "방장 선", challenger: "도전자 선" }[room.firstMoveRule] || "무작위";
   roomRuleSummaryEl.textContent = `선공: ${firstMoveLabel} · 무르기 ${undoLabel}`;
 
+  ensureProfileSubscriptions();
+  waitingHostNameEl.textContent = hostNickname || "방장";
+  waitingChallengerNameEl.textContent = room.challengerId ? (challengerNickname || "도전자") : "대기중...";
+  waitingHostCheckEl.style.display = room.hostReady ? "inline" : "none";
+  waitingChallengerCheckEl.style.display = room.challengerReady ? "inline" : "none";
+
   if (myRole === "spectator") {
     waitingStatusEl.textContent = "게임이 시작되기를 기다리는 중이에요 (관전자)";
     readyBtn.style.display = "none";
-    myReadyLabelEl.style.display = "none";
     return;
   }
-
-  myReadyLabelEl.style.display = "inline";
-  myReadyLabelEl.textContent = myRole === "host" ? "방장 (나)" : "도전자 (나)";
 
   if (myRole === "host" && !room.challengerId) {
     readyBtn.style.display = "none";
@@ -576,21 +638,20 @@ function renderWaitingPhase() {
   }
 
   const amReady = myRole === "host" ? room.hostReady : room.challengerReady;
-  readyBtn.style.display = "inline-block";
-  readyBtn.textContent = amReady ? "✔ 준비 완료" : "준비";
-  readyBtn.disabled = amReady;
-  waitingStatusEl.textContent = "상대의 준비를 기다리는 중이에요...";
+  // 준비를 누르면 버튼이 사라지고, 대신 내 이름 바로 아래 체크 표시가 뜸
+  readyBtn.style.display = amReady ? "none" : "inline-block";
+  readyBtn.disabled = false;
+  waitingStatusEl.textContent = amReady ? "상대의 준비를 기다리는 중이에요..." : "";
 }
 
 function renderNames() {
-  const myLabel = myRole === "host" ? "방장 (나)" : "도전자 (나)";
-  const oppLabel = myRole === "host" ? "도전자" : "방장";
-  myNameEl.textContent = myLabel;
-  opponentNameEl.textContent = oppLabel;
+  ensureProfileSubscriptions();
+  hostNameEl.textContent = (hostNickname || "방장") + formatStatsLabel(hostStats);
+  challengerNameEl.textContent = (challengerNickname || "도전자") + formatStatsLabel(challengerStats);
 
-  const iAmTurn = myColor === room.turn;
-  myNameEl.classList.toggle("turn-active", iAmTurn);
-  opponentNameEl.classList.toggle("turn-active", !iAmTurn);
+  const hostIsTurn = room.hostColor === room.turn;
+  hostNameEl.classList.toggle("turn-active", hostIsTurn);
+  challengerNameEl.classList.toggle("turn-active", !hostIsTurn);
 
   startTimeTicker();
   updateTimeDisplay();
@@ -629,10 +690,10 @@ function updateTimeDisplay() {
     else blackLeft = Math.max(0, blackLeft - elapsed);
   }
 
-  const myLeft = myColor === "white" ? whiteLeft : blackLeft;
-  const oppLeft = myColor === "white" ? blackLeft : whiteLeft;
-  myTimeEl.textContent = formatTime(myLeft);
-  opponentTimeEl.textContent = formatTime(oppLeft);
+  const hostLeft = room.hostColor === "white" ? whiteLeft : blackLeft;
+  const challengerLeft = room.hostColor === "white" ? blackLeft : whiteLeft;
+  hostTimeEl.textContent = formatTime(hostLeft);
+  challengerTimeEl.textContent = formatTime(challengerLeft);
 
   if (presetSeconds && (whiteLeft <= 0 || blackLeft <= 0)) {
     claimTimeout();
@@ -652,32 +713,34 @@ async function claimTimeout() {
 }
 
 /* =========================================================
-   AI(Stockfish) 힌트 모드 — 완전히 클라이언트(내 화면)에만 존재하는 기능.
-   room 문서에 저장하지 않으므로 상대방/서버는 이 상태를 전혀 모름.
-   - 기보 이전/다음 버튼을 "뒤앞앞뒤앞뒤" 순서로 누르면 켜짐/꺼짐 토글.
-   - 켜져 있고 내 차례일 때, 스톡피시가 현재 fen을 분석해서 추천수를 계산.
-   - 추천하는 기물이 있는 칸은 파란색으로, 그 기물을 선택했을 때 보이는
-     이동 가능 칸들 중 추천 칸 하나만 반투명 빨간 원(나머지는 기존 초록 원)으로 표시.
+   AI(Stockfish) 힌트 모드
+   - 비밀 코드, on/off 상태, 실제 엔진 계산까지 전부 서버(worker)가 처리함.
+     클라이언트는 버튼을 누를 때마다 /api/hint-action으로 액션만 전달하고,
+     서버가 돌려주는 on/off 결과만 반영함 — room.js 소스를 읽어도 코드나
+     현재 켜짐 여부는 알 수 없음.
+   - 켜져 있고 내 차례일 때 /api/hint-move를 호출해 추천수를 받아옴.
 ========================================================= */
 let aiHintEnabled = false;
 let aiSuggestion = null;       // { from:{r,c}, to:{r,c} } | null
 let aiSuggestionForFen = null; // 마지막으로 계산한 fen (턴이 바뀌면 다시 계산하기 위함)
 let aiComputing = false;
-let aiCodeBuffer = [];
-const AI_SECRET_CODE = ["prev", "next", "next", "prev", "next", "prev"]; // 뒤앞앞뒤앞뒤
+let aiActionPending = false;
 
-function recordHistoryAction(action) {
-  aiCodeBuffer.push(action);
-  if (aiCodeBuffer.length > AI_SECRET_CODE.length) aiCodeBuffer.shift();
-  if (
-    aiCodeBuffer.length === AI_SECRET_CODE.length &&
-    aiCodeBuffer.every((v, i) => v === AI_SECRET_CODE[i])
-  ) {
-    aiHintEnabled = !aiHintEnabled;
-    aiSuggestion = null;
-    aiSuggestionForFen = null;
-    aiCodeBuffer = [];
-    renderBoardAndLog();
+async function recordHistoryAction(action) {
+  if (aiActionPending) return;
+  aiActionPending = true;
+  try {
+    const res = await callApi("/api/hint-action", { roomId, action });
+    if (res.enabled !== aiHintEnabled) {
+      aiHintEnabled = !!res.enabled;
+      aiSuggestion = null;
+      aiSuggestionForFen = null;
+      renderBoardAndLog();
+    }
+  } catch (e) {
+    // 조용히 무시 — 일반적인 이전/다음 버튼 동작에는 영향 없음
+  } finally {
+    aiActionPending = false;
   }
 }
 
@@ -687,8 +750,8 @@ async function updateAiSuggestionIfNeeded(isMyTurnNow) {
   aiComputing = true;
   const fenAtRequest = room.fen;
   try {
-    const moveStr = await getAIMove(fenAtRequest);
-    aiSuggestion = uciToCoords(moveStr);
+    const res = await callApi("/api/hint-move", { roomId });
+    aiSuggestion = res.moveStr ? uciToCoords(res.moveStr) : null;
     aiSuggestionForFen = fenAtRequest;
   } catch (e) {
     console.error("[AI 힌트 계산 실패]", e);
@@ -698,6 +761,101 @@ async function updateAiSuggestionIfNeeded(isMyTurnNow) {
   }
 }
 
+
+/* =========================================================
+   수 품질 표시 (✅🤫❌❓)
+   - chess.com류 UI를 흉내낸 "간단한" 자체 기준일 뿐, 공식 알고리즘과는 다름
+     (희생수/유일수 판정 등은 하지 않고, 스톡피시 얕은 평가값의 손실폭만 봄)
+   - 각 수 앞뒤 포지션(fen)을 스톡피시로 짧게(300ms) 평가해서, 그 수를 둔 쪽 기준으로
+     평가가 얼마나 나빠졌는지(손실, centipawn)를 계산해 4단계로 분류함
+   - 연속된 수의 "이후 포지션"과 "다음 수의 이전 포지션"은 같은 fen이라 캐시로 재사용
+========================================================= */
+function classifyMoveLoss(lossCp) {
+  const loss = Math.max(0, lossCp);
+  if (loss < 20) return "🤫";   // 아주 좋은 수 (국대급)
+  if (loss < 60) return "✅";   // 좋은 수
+  if (loss < 150) return "❓";  // 애매한 수
+  return "❌";                  // 안좋은 수
+}
+
+async function cachedEval(fen) {
+  if (fenEvalCache.has(fen)) return fenEvalCache.get(fen);
+  let val = null;
+  try {
+    val = await getPositionEval(fen, 300);
+  } catch (e) {
+    val = null;
+  }
+  fenEvalCache.set(fen, val);
+  return val;
+}
+
+function scheduleQualityAnalysis(total) {
+  qualityComputeChain = qualityComputeChain.then(async () => {
+    for (let i = 1; i <= total; i++) {
+      if (moveQuality.has(i)) continue;
+      const fenBefore = history.fens[i - 1];
+      const fenAfter = history.fens[i];
+      if (!fenBefore || !fenAfter) continue;
+      try {
+        const evalBefore = await cachedEval(fenBefore);
+        const evalAfter = await cachedEval(fenAfter);
+        if (evalBefore === null || evalAfter === null) continue;
+        const moverIsWhite = i % 2 === 1; // 1수, 3수... = 백
+        const loss = moverIsWhite ? (evalBefore - evalAfter) : (evalAfter - evalBefore);
+        moveQuality.set(i, classifyMoveLoss(loss));
+        renderLog((room.moves || []).length);
+      } catch (e) {
+        // 엔진 실패는 표시만 안 뜰 뿐 게임 진행엔 영향 없으니 조용히 넘어감
+      }
+    }
+  });
+}
+
+/* =========================================================
+   닉네임(users/{uid}) + 전적(playerStats/{uid}) 구독
+   - 방장/도전자는 항상 왼쪽/오른쪽에 고정 표시되므로, "나/상대"가 아니라
+     room.hostId / room.challengerId 기준으로 구독함(관전자 화면에서도 동일하게 보이도록)
+========================================================= */
+function ensureProfileSubscriptions() {
+  if (!room) return;
+
+  if (room.hostId && room.hostId !== subscribedHostId) {
+    subscribedHostId = room.hostId;
+    if (hostUserUnsub) hostUserUnsub();
+    if (hostStatsUnsub) hostStatsUnsub();
+    hostUserUnsub = onSnapshot(doc(db, "users", room.hostId), (snap) => {
+      hostNickname = snap.exists() ? snap.data().nickname : null;
+      renderNames();
+    });
+    hostStatsUnsub = onSnapshot(doc(db, "playerStats", room.hostId), (snap) => {
+      hostStats = snap.exists() ? snap.data() : { wins: 0, losses: 0, draws: 0 };
+      renderNames();
+    });
+  }
+
+  if (room.challengerId && room.challengerId !== subscribedChallengerId) {
+    subscribedChallengerId = room.challengerId;
+    if (challengerUserUnsub) challengerUserUnsub();
+    if (challengerStatsUnsub) challengerStatsUnsub();
+    challengerUserUnsub = onSnapshot(doc(db, "users", room.challengerId), (snap) => {
+      challengerNickname = snap.exists() ? snap.data().nickname : null;
+      renderNames();
+    });
+    challengerStatsUnsub = onSnapshot(doc(db, "playerStats", room.challengerId), (snap) => {
+      challengerStats = snap.exists() ? snap.data() : { wins: 0, losses: 0, draws: 0 };
+      renderNames();
+    });
+  }
+}
+
+function formatStatsLabel(stats) {
+  if (!stats) return "";
+  const wins = stats.wins || 0, losses = stats.losses || 0, draws = stats.draws || 0;
+  const total = wins + losses + draws;
+  const rate = total > 0 ? Math.round((wins / total) * 100) : 0;
+  return ` (${wins}승 ${losses}패 ${rate}%)`;
+}
 
 function renderBoardAndLog() {
   const total = (room.moves || []).length;
@@ -759,7 +917,9 @@ function drawBoard(boardGrid, lastMove, isMyTurnNow) {
         }
       }
 
-      cell.addEventListener("click", () => handleCellClick(r, c, boardGrid, isMyTurnNow));
+      cell.dataset.r = String(r);
+      cell.dataset.c = String(c);
+      cell.addEventListener("pointerdown", (e) => handleCellPointerDown(e, r, c, boardGrid, isMyTurnNow));
       boardEl.appendChild(cell);
     }
   }
@@ -771,7 +931,9 @@ function renderLog(total) {
     const btn = document.createElement("button");
     btn.className = "log-btn" + (i === viewIndex ? " active" : "");
     const turnNum = Math.ceil(i / 2);
-    btn.textContent = `${turnNum}. ${history.sans[i - 1] ?? "?"}`;
+    const quality = moveQuality.get(i);
+    const sanText = escapeHtmlLocal(history.sans[i - 1] ?? "?");
+    btn.innerHTML = `${turnNum}. ${sanText}${quality ? ` <span class="move-quality">${quality}</span>` : ""}`;
     btn.addEventListener("click", () => {
       viewIndex = i;
       followLatest = viewIndex === total;
@@ -803,7 +965,8 @@ function describeResult() {
   const winnerRole = room.winner === room.hostColor ? "host" : "challenger";
   let title;
   if (myRole === "spectator") {
-    title = winnerRole === "host" ? "방장 승리" : "도전자 승리";
+    const winnerName = winnerRole === "host" ? (hostNickname || "방장") : (challengerNickname || "도전자");
+    title = `${winnerName} 승리`;
   } else {
     title = myRole === winnerRole ? "승리했어요! 🎉" : "패배했어요";
   }
@@ -816,26 +979,76 @@ function showResult() {
     resultShownKey = key;
     resultDismissed = false;
   }
-  if (resultDismissed || resultOverlayEl) return;
+  if (resultDismissed) return;
 
   const { title, subtitle } = describeResult();
 
-  resultOverlayEl = document.createElement("div");
-  resultOverlayEl.className = "xeon-result-overlay";
-  resultOverlayEl.innerHTML = `
-    <div class="xeon-result-box">
-      <h2>${escapeHtmlLocal(title)}</h2>
-      <p>${escapeHtmlLocal(subtitle)}</p>
-      <button type="button" class="xeon-btn" id="resultCloseBtn">기보 보기</button>
-      <button type="button" class="xeon-btn" id="resultLeaveBtn">로비로</button>
-    </div>
+  if (!resultOverlayEl) {
+    resultOverlayEl = document.createElement("div");
+    resultOverlayEl.className = "xeon-result-overlay";
+    resultOverlayEl.innerHTML = `
+      <div class="xeon-result-box">
+        <h2>${escapeHtmlLocal(title)}</h2>
+        <p>${escapeHtmlLocal(subtitle)}</p>
+        <div id="resultRematchArea"></div>
+        <button type="button" class="xeon-btn" id="resultCloseBtn">기보 보기</button>
+        <button type="button" class="xeon-btn" id="resultLeaveBtn">로비로</button>
+      </div>
+    `;
+    document.body.appendChild(resultOverlayEl);
+    document.getElementById("resultCloseBtn").addEventListener("click", dismissResultOverlay);
+    document.getElementById("resultLeaveBtn").addEventListener("click", () => {
+      localStorage.removeItem("xeon_last_room");
+      window.location.href = "index.html";
+    });
+  }
+  renderRematchIntoOverlay();
+}
+
+/* =========================================================
+   재대국(구 "다시하기") — 결과 오버레이 안에 버튼/상태를 그려 넣음
+   양쪽 다 눌러야 새 게임으로 리셋되고, 상대가 이미 나갔으면 버튼이 비활성화되고 ✕가 표시됨
+========================================================= */
+function renderRematchIntoOverlay() {
+  if (!resultOverlayEl || !room) return;
+  const area = document.getElementById("resultRematchArea");
+  if (!area) return;
+
+  const isPlayer = myRole === "host" || myRole === "challenger";
+  if (!isPlayer) {
+    area.innerHTML = "";
+    return;
+  }
+
+  const oppLeftField = myRole === "host" ? "challengerLeft" : "hostLeft";
+  if (room[oppLeftField]) {
+    area.innerHTML = `<p class="xeon-undo-status">상대가 나가서 재대국할 수 없어요 ✕</p>`;
+    return;
+  }
+
+  const myReadyField = myRole === "host" ? "hostRematchReady" : "challengerRematchReady";
+  const oppReadyField = myRole === "host" ? "challengerRematchReady" : "hostRematchReady";
+  const amReady = !!room[myReadyField];
+  const oppReady = !!room[oppReadyField];
+
+  area.innerHTML = `
+    <button type="button" class="xeon-btn" id="resultRematchBtn"${amReady ? " disabled" : ""}>${amReady ? "✔ 재대국 준비" : "재대국"}</button>
+    <p class="xeon-undo-status">${oppReady ? "상대가 재대국을 기다리고 있어요" : (amReady ? "상대의 재대국 수락을 기다리는 중이에요..." : "")}</p>
   `;
-  document.body.appendChild(resultOverlayEl);
-  document.getElementById("resultCloseBtn").addEventListener("click", dismissResultOverlay);
-  document.getElementById("resultLeaveBtn").addEventListener("click", () => {
-    localStorage.removeItem("xeon_last_room");
-    window.location.href = "index.html";
-  });
+  const btn = document.getElementById("resultRematchBtn");
+  if (btn && !amReady) btn.addEventListener("click", handleRematchClick);
+}
+
+async function handleRematchClick() {
+  if (!room || room.status !== "finished" || myRole === "spectator") return;
+  const btn = document.getElementById("resultRematchBtn");
+  if (btn) btn.disabled = true;
+  try {
+    await callApi("/api/rematch", { roomId });
+  } catch (e) {
+    alert(e.message);
+    if (btn) btn.disabled = false;
+  }
 }
 
 function dismissResultOverlay() {
@@ -858,14 +1071,24 @@ function escapeHtmlLocal(str) {
 let selectedPos = null;
 let possibleMoves = [];
 
-function handleCellClick(r, c, boardGrid, isMyTurnNow) {
+// 드래그 진행 상태 (탭으로 선택 후 탭으로 이동하는 기존 방식과 함께 동작)
+let dragFromCell = null;   // {r,c}
+let dragMoved = false;
+let dragStartXY = null;
+let dragGhostEl = null;
+let dragOriginCellEl = null;
+
+function handleCellPointerDown(e, r, c, boardGrid, isMyTurnNow) {
   if (!isMyTurnNow) return;
   const piece = boardGrid[r][c];
 
+  // 이미 선택된 기물이 있고, 지금 누른 칸이 이동 가능한 칸이면 바로 이동(탭-탭 방식)
   if (selectedPos && possibleMoves.some(m => m.r === r && m.c === c)) {
-    submitMove(selectedPos.r, selectedPos.c, r, c);
+    const from = selectedPos;
+    submitMove(from.r, from.c, r, c);
     selectedPos = null;
     possibleMoves = [];
+    renderBoardAndLog();
     return;
   }
 
@@ -874,16 +1097,95 @@ function handleCellClick(r, c, boardGrid, isMyTurnNow) {
     (myColor === "black" && piece === piece.toLowerCase())
   );
 
-  if (pieceIsMine) {
-    selectedPos = { r, c };
-    const liveChess = new Chess(room.fen);
-    const verboseMoves = liveChess.moves({ square: squareName(r, c), verbose: true });
-    possibleMoves = verboseMoves.map(m => squareToRC(m.to));
-  } else {
+  if (!pieceIsMine) {
     selectedPos = null;
     possibleMoves = [];
+    renderBoardAndLog();
+    return;
   }
+
+  // 내 기물을 새로 선택: 이동 가능 칸 표시 + 드래그 시작 준비
+  selectedPos = { r, c };
+  const liveChess = new Chess(room.fen);
+  const verboseMoves = liveChess.moves({ square: squareName(r, c), verbose: true });
+  possibleMoves = verboseMoves.map(m => squareToRC(m.to));
   renderBoardAndLog();
+
+  dragFromCell = { r, c };
+  dragMoved = false;
+  dragStartXY = { x: e.clientX, y: e.clientY };
+  dragOriginCellEl = e.currentTarget;
+
+  dragGhostEl = document.createElement("div");
+  dragGhostEl.className = "drag-ghost";
+  dragGhostEl.textContent = PIECES[piece] || "";
+  document.body.appendChild(dragGhostEl);
+  positionDragGhost(e.clientX, e.clientY);
+
+  window.addEventListener("pointermove", handleDragMove);
+  window.addEventListener("pointerup", handleDragEnd, { once: true });
+}
+
+function positionDragGhost(x, y) {
+  if (!dragGhostEl) return;
+  dragGhostEl.style.left = x + "px";
+  dragGhostEl.style.top = y + "px";
+}
+
+function handleDragMove(e) {
+  if (!dragGhostEl || !dragStartXY) return;
+  const dx = e.clientX - dragStartXY.x;
+  const dy = e.clientY - dragStartXY.y;
+  if (!dragMoved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+    dragMoved = true;
+    dragGhostEl.style.display = "flex";
+    if (dragOriginCellEl) dragOriginCellEl.classList.add("dragging-origin");
+    boardEl.classList.add("dragging-active");
+  }
+  if (dragMoved) {
+    positionDragGhost(e.clientX, e.clientY);
+    highlightDropTarget(e.clientX, e.clientY);
+  }
+}
+
+function highlightDropTarget(x, y) {
+  boardEl.querySelectorAll(".drop-hover").forEach((el) => el.classList.remove("drop-hover"));
+  const el = document.elementFromPoint(x, y);
+  const cellEl = el ? el.closest(".cell") : null;
+  if (!cellEl || cellEl.dataset.r === undefined) return;
+  const r = parseInt(cellEl.dataset.r, 10);
+  const c = parseInt(cellEl.dataset.c, 10);
+  if (possibleMoves.some(m => m.r === r && m.c === c)) {
+    cellEl.classList.add("drop-hover");
+  }
+}
+
+function handleDragEnd(e) {
+  window.removeEventListener("pointermove", handleDragMove);
+  boardEl.querySelectorAll(".drop-hover").forEach((el) => el.classList.remove("drop-hover"));
+  if (dragGhostEl) { dragGhostEl.remove(); dragGhostEl = null; }
+  if (dragOriginCellEl) { dragOriginCellEl.classList.remove("dragging-origin"); dragOriginCellEl = null; }
+  boardEl.classList.remove("dragging-active");
+
+  if (dragMoved && dragFromCell) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const cellEl = el ? el.closest(".cell") : null;
+    if (cellEl && cellEl.dataset.r !== undefined) {
+      const r = parseInt(cellEl.dataset.r, 10);
+      const c = parseInt(cellEl.dataset.c, 10);
+      if (possibleMoves.some(m => m.r === r && m.c === c)) {
+        submitMove(dragFromCell.r, dragFromCell.c, r, c);
+      }
+    }
+    // 드래그를 시도했으면(성공/실패 모두) 선택 상태를 정리 — 탭-탭 방식은 선택을 유지해야 하므로 건드리지 않음
+    selectedPos = null;
+    possibleMoves = [];
+    renderBoardAndLog();
+  }
+
+  dragFromCell = null;
+  dragMoved = false;
+  dragStartXY = null;
 }
 
 async function submitMove(fromR, fromC, toR, toC) {
