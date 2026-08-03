@@ -10,7 +10,7 @@ body {
 .lobby-wrap {
   max-width: 640px;
   margin: 0 auto;
-  padding: 24px 16px 80px;
+  padding: 24px 16px 100px;
 }
 
 .lobby-header {
@@ -173,14 +173,46 @@ body {
 .room-rule-summary { font-size: 13px; color: #999; margin: 0 0 24px; }
 .waiting-status { font-size: 14px; color: #ccc; margin-bottom: 24px; }
 
-.ready-box {
+/* 대기(준비) 화면: 왼쪽=방장, 가운데=준비 버튼, 오른쪽=도전자 */
+.ready-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ready-player {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  padding-top: 8px;
 }
 
-.ready-label { font-size: 13px; color: #888; }
+.ready-player-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #eee;
+  word-break: break-all;
+}
+
+.ready-check {
+  font-size: 18px;
+  color: #4caf50;
+  font-weight: bold;
+}
+
+.ready-center-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  min-width: 100px;
+}
+
+.leave-waiting-btn {
+  margin-top: 28px;
+}
 
 .game-wrap {
   max-width: 900px;
@@ -213,13 +245,24 @@ body {
   gap: 6px;
 }
 
+/* 판 위, 왼쪽=방장 / 오른쪽=도전자 (보는 사람과 무관하게 고정) */
 .player-row {
   width: 480px;
   display: flex;
-  justify-content: center;
-  align-items: baseline;
+  justify-content: space-between;
+  align-items: flex-end;
   gap: 8px;
 }
+
+.player-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.player-block-left { align-items: flex-start; }
+.player-block-right { align-items: flex-end; }
 
 .player-name {
   font-size: 15px;
@@ -227,10 +270,17 @@ body {
   color: #ccc;
   transform-origin: center;
   transition: transform 0.2s ease, color 0.2s ease;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.player-block-left .player-name { transform-origin: left center; }
+.player-block-right .player-name { transform-origin: right center; }
+
 .player-name.turn-active {
-  transform: scale(1.25);
+  transform: scale(1.15);
   color: #fff;
 }
 
@@ -255,6 +305,7 @@ body {
   cursor: pointer;
   user-select: none;
   position: relative;
+  touch-action: none; /* 드래그 중 페이지 스크롤/줌 방지 */
 }
 
 .white-cell { background-color: #ebecd0; color: #000; }
@@ -283,6 +334,28 @@ body {
   border-radius: 50%;
   position: absolute;
 }
+
+/* ===================== 드래그앤드롭 ===================== */
+
+.drag-ghost {
+  position: fixed;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  font-size: 38px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  z-index: 2000;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5));
+}
+
+.cell.dragging-origin { opacity: 0.35; }
+
+.cell.drop-hover { background-color: rgba(20, 133, 60, 0.45) !important; }
+
+.chess-board.dragging-active .cell { cursor: grabbing; }
 
 .game-status { font-size: 13px; color: #999; margin-top: 4px; }
 
@@ -318,6 +391,12 @@ body {
 }
 
 .log-btn.active { background: #bbc742; color: #000; border-color: #bbc742; font-weight: bold; }
+
+/* 수 품질 표시(✅🤫❌❓) — 기보 텍스트 옆에 살짝 띄워서 표시 */
+.move-quality {
+  margin-left: 4px;
+  font-size: 12px;
+}
 
 .history-nav {
   display: flex;
@@ -388,4 +467,80 @@ body {
 .resume-banner .btn {
   padding: 7px 14px;
   font-size: 13px;
+}
+
+/* ===================== 로그인 상태(좌상단) ===================== */
+
+.auth-corner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #202027;
+  border-bottom: 1px solid #333;
+  font-size: 13px;
+  color: #ccc;
+  flex-wrap: wrap;
+}
+
+.auth-status {
+  color: #bbb;
+}
+
+.auth-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.auth-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* ===================== 프로필 박스(로비 맨 왼쪽 하단) ===================== */
+
+.profile-box {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  z-index: 998;
+  background: #2a2a33;
+  border: 1px solid #3a3a44;
+  border-radius: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+  transition: background 0.15s;
+  max-width: 220px;
+}
+
+.profile-box:hover {
+  background: #33333d;
+}
+
+.profile-box:active {
+  background: #3a3a44;
+}
+
+.profile-nickname {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-record {
+  font-size: 12px;
+  color: #999;
+  margin-top: 2px;
+}
+
+.profile-hint {
+  font-size: 10px;
+  color: #666;
+  margin-top: 2px;
 }
