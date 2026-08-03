@@ -17,11 +17,22 @@
   <p id="roomRuleSummary" class="room-rule-summary"></p>
   <p id="waitingStatus" class="waiting-status"></p>
 
-  <div class="ready-box">
-    <span id="myReadyLabel" class="ready-label"></span>
-    <button id="readyBtn" class="btn primary">준비</button>
-    <button id="leaveWaitingBtn" class="btn">나가기</button>
+  <!-- 왼쪽=방장, 가운데=준비 버튼, 오른쪽=도전자 -->
+  <div class="ready-row">
+    <div class="ready-player ready-player-left">
+      <span id="waitingHostName" class="ready-player-name">방장</span>
+      <span id="waitingHostCheck" class="ready-check" style="display:none;">✔</span>
+    </div>
+
+    <button id="readyBtn" class="btn primary ready-center-btn">준비</button>
+
+    <div class="ready-player ready-player-right">
+      <span id="waitingChallengerName" class="ready-player-name">도전자</span>
+      <span id="waitingChallengerCheck" class="ready-check" style="display:none;">✔</span>
+    </div>
   </div>
+
+  <button id="leaveWaitingBtn" class="btn leave-waiting-btn">나가기</button>
 </div>
 
 <!-- 게임 화면 -->
@@ -34,17 +45,19 @@
     </div>
 
     <div class="board-col">
+      <!-- 왼쪽=방장, 오른쪽=도전자 (보는 사람과 무관하게 항상 동일한 배치) -->
       <div class="player-row">
-        <span id="opponentName" class="player-name">상대</span>
-        <span id="opponentTime" class="player-time"></span>
+        <div class="player-block player-block-left">
+          <span id="hostName" class="player-name">방장</span>
+          <span id="hostTime" class="player-time"></span>
+        </div>
+        <div class="player-block player-block-right">
+          <span id="challengerName" class="player-name">도전자</span>
+          <span id="challengerTime" class="player-time"></span>
+        </div>
       </div>
 
       <div id="board" class="chess-board"></div>
-
-      <div class="player-row">
-        <span id="myName" class="player-name">나</span>
-        <span id="myTime" class="player-time"></span>
-      </div>
 
       <p id="gameStatus" class="game-status"></p>
     </div>
