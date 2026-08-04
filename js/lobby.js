@@ -1,6 +1,6 @@
 import { db, ensureSignedIn, onAuthChange, currentUserInfo, signInWithGoogle, signOutAndGoGuest } from "./firebase-config.js";
 import {
-  collection, doc, getDoc, onSnapshot,
+  collection, doc, getDoc, getDocs, onSnapshot,
   query, orderBy
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import { isAdmin, promptAdminLogin, getAdminPassword } from "./admin.js";
@@ -22,6 +22,7 @@ const joinPasswordInput = document.getElementById("joinPasswordInput");
 const joinError = document.getElementById("joinError");
 
 const adminCornerEl = document.getElementById("adminCorner");
+const refreshRoomsBtn = document.getElementById("refreshRoomsBtn");
 
 let currentUser = null;
 let roomsCache = {};      // roomId -> room data (실시간 반영)
@@ -239,19 +240,17 @@ async function handleGoogleLogin() {
     }
   } catch (e) {
     console.error(e);
-    alert("구글 로그인에 실패했어요: " + e.message);
+    alert("로그인에 실패했어요: " + e.message);
   } finally {
     if (btn) btn.disabled = false;
   }
 }
 
 async function handleLogout() {
-  if (!confirm("게스트로 전환할까요? (진행 중이던 통계는 구글 계정에 그대로 남아있어요)")) return;
+  const btn = document.getElementById("logoutBtn");
+  if (btn) btn.disabled = true;
   try {
     await signOutAndGoGuest();
-    currentUser = currentUserInfo();
-    await ensureUserProfile();
-    subscribeProfile();
   } catch (e) {
     console.error(e);
     alert("전환에 실패했어요: " + e.message);
@@ -317,6 +316,37 @@ function subscribeRoomList() {
     });
     renderRoomList();
   });
+}
+
+/* =========================================================
+   방 목록 수동 새로고침 버튼
+   - 방 목록은 onSnapshot으로 이미 실시간 반영되지만, 혹시 연결이 끊기거나
+     "지금 최신 상태인지 눈으로 확인하고 싶을 때"를 위해 수동 새로고침도 제공.
+   - 버튼을 누르면 서버에서 한 번 다시 읽어와 목록을 갱신하고, 아이콘을 잠깐 회전시킴.
+========================================================= */
+async function handleRefreshRooms() {
+  if (!refreshRoomsBtn || refreshRoomsBtn.disabled) return;
+
+  refreshRoomsBtn.disabled = true;
+  refreshRoomsBtn.classList.add("spinning");
+
+  try {
+    const q = query(collection(db, "rooms"), orderBy("createdAt", "desc"));
+    const snapshot = await getDocs(q);
+    roomsCache = {};
+    snapshot.forEach((docSnap) => {
+      roomsCache[docSnap.id] = docSnap.data();
+    });
+    renderRoomList();
+  } catch (e) {
+    console.error("[방 목록 새로고침 실패]", e);
+  } finally {
+    // 회전 애니메이션이 눈에 보이도록 살짝 텀을 두고 정리
+    setTimeout(() => {
+      refreshRoomsBtn.classList.remove("spinning");
+      refreshRoomsBtn.disabled = false;
+    }, 400);
+  }
 }
 
 function renderRoomList() {
@@ -419,6 +449,10 @@ function bindUI() {
     adminCornerEl.addEventListener("click", async () => {
       if (await promptAdminLogin()) renderRoomList(); // 성공하면 X버튼들 즉시 노출
     });
+  }
+
+  if (refreshRoomsBtn) {
+    refreshRoomsBtn.addEventListener("click", handleRefreshRooms);
   }
 }
 
