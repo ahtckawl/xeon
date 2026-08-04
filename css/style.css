@@ -25,6 +25,12 @@ body {
   margin: 0;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .btn {
   padding: 10px 18px;
   border-radius: 10px;
@@ -49,6 +55,46 @@ body {
 .btn.look-disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* 아이콘만 있는 버튼(새로고침 등) */
+.icon-btn {
+  padding: 10px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.icon-btn img {
+  width: 18px;
+  height: 18px;
+  /* 원본 아이콘이 검정색이라 어두운 배경에서 보이도록 흰색으로 반전 */
+  filter: invert(1);
+  pointer-events: none;
+}
+
+.icon-btn.spinning img {
+  animation: icon-spin 0.6s linear;
+}
+
+@keyframes icon-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 아이콘 출처 표기 (Flaticon 라이선스 요구사항) */
+.icon-credit {
+  text-align: center;
+  font-size: 11px;
+  color: #555;
+  margin: 28px 0 0;
+}
+
+.icon-credit a {
+  color: #666;
 }
 
 .room-list {
