@@ -14,13 +14,22 @@
 <div class="lobby-wrap">
   <header class="lobby-header">
     <h1>체스 로비</h1>
-    <button id="createRoomBtn" class="btn primary">방 생성</button>
+    <div class="header-actions">
+      <button id="refreshRoomsBtn" type="button" class="btn icon-btn" title="방 목록 새로고침" aria-label="방 목록 새로고침">
+        <img src="img/refresh-button.png" alt="">
+      </button>
+      <button id="createRoomBtn" class="btn primary">방 생성</button>
+    </div>
   </header>
 
   <ul id="roomList" class="room-list">
     <!-- JS가 채웁니다 -->
   </ul>
   <p id="emptyMsg" class="empty-msg" style="display:none;">개설된 방이 없어요. 방을 만들어보세요.</p>
+
+  <p class="icon-credit">
+    <a href="https://www.flaticon.com/free-icon/refresh-button_61444" title="refresh button icons" target="_blank" rel="noopener noreferrer">Refresh button icons created by Magnific - Flaticon</a>
+  </p>
 </div>
 
 <!-- 방 생성 모달 -->
