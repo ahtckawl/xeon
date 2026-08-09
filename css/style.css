@@ -275,10 +275,12 @@ body {
 }
 
 /* 가로모드: 세로(vh)가 부족한 게 문제이므로 vh 기준으로 계산.
-   기준화면(834px 높이)에서 60px가 나오도록 7.2vh로 설정 → 계산: 0.072 * 834 ≈ 60px */
+   기준화면(834px 높이)에서 60px가 나오도록 7.2vh로 설정 → 계산: 0.072 * 834 ≈ 60px
+   → 왼쪽 버튼 열이 사라지고 하단 바로 옮겨가면서 보드 쪽 공간이 넓어져서
+     기준 비율을 8.4vh로 올려 보드를 더 크게 표시함 */
 @media (orientation: landscape) {
   :root {
-    --cell: clamp(26px, 7.2vh, 60px);
+    --cell: clamp(30px, 8.4vh, 76px);
   }
 }
 
@@ -309,6 +311,7 @@ body {
   flex-direction: column;
   padding-top: 40px;
   gap: 8px;
+  order: 3;
 }
 
 .resign-btn {
@@ -321,6 +324,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  order: 2;
 }
 
 /* 판 위, 왼쪽=방장 / 오른쪽=도전자 (보는 사람과 무관하게 고정) */
@@ -330,6 +334,7 @@ body {
   justify-content: space-between;
   align-items: flex-end;
   gap: 8px;
+  order: 1;
 }
 
 .player-block {
@@ -402,7 +407,8 @@ body {
 .selected { background-color: #bbc742 !important; }
 .last-move { box-shadow: inset 0 0 0 4px rgba(76, 141, 255, 0.75); }
 
-/* AI(스톡피시) 힌트 — 나에게만 보이는 표시 */
+/* AI(스톡피시) 힌트 — 나에게만 보이는 표시. 승진 기물 선택 모달에서
+   AI가 추천하는 기물을 표시할 때도 같은 파란색 테두리를 재사용함 */
 .ai-suggest-piece { box-shadow: inset 0 0 0 999px rgba(64, 132, 255, 0.35); }
 .possible-move-ai::after {
   content: '';
@@ -442,6 +448,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  order: 4;
 }
 
 .log-panel {
@@ -486,82 +493,253 @@ body {
 
 .full-width-btn { width: 100%; }
 
-/* 가로모드: 아이패드(M3) 11형보다 세로 폭이 좁은 화면(폰 가로모드 등)에서
-   오른쪽 로그 패널/기록 칸이 화면을 넘치지 않도록 함께 줄여줌 */
+/* =========================================================
+   가로모드 전용 레이아웃 (chess.com 앱 느낌 참고)
+   - 왼쪽 버튼 열(left-col)을 없애고, 이름/로그가 있던 오른쪽 칸도
+     해체해서 전부 하나의 4열 그리드 위에 재배치함
+   - 보드가 왼쪽 3칸을 다 차지해서 커지고, 오른쪽 1칸 위쪽엔 이름,
+     아래쪽엔 로그(크게)가 배치됨
+   - 맨 아래에 옵션(무르기/최신수 토글) · 기권 · 이전 · 다음, 4개 버튼을
+     가로로 나란히 배치(chess.com 하단 바의 옵션/기권/힌트/실행취소 자리에 대응)
+========================================================= */
 @media (orientation: landscape) {
-  .right-col {
-    width: clamp(96px, 20vw, 160px);
+  .game-layout {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: auto 1fr auto auto;
+    grid-template-areas:
+      "board board board names"
+      "board board board log"
+      "opt   resign prev  next"
+      "admin admin admin admin";
+    gap: 10px;
+    align-items: stretch;
+    justify-content: stretch;
   }
-  .log-panel {
-    height: clamp(180px, 60vh, 480px);
+
+  /* 이 래퍼들은 이제 시각적 박스가 아니라 그리드 배치를 위한 통로 역할만 함 */
+  .left-col, .right-col, .history-nav {
+    display: contents;
   }
-  .left-col {
-    padding-top: clamp(8px, 4vh, 40px);
+
+  .board-col {
+    grid-area: board;
+    padding-top: 0;
+  }
+
+  .player-row {
+    grid-area: names;
+    width: auto;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  .player-block-left, .player-block-right {
+    align-items: flex-start;
+  }
+  .player-row .player-name {
+    max-width: 100%;
+  }
+
+  #logPanel {
+    grid-area: log;
+    height: auto;
+    aspect-ratio: auto;
+    flex: 1;
+    min-height: 120px;
+  }
+
+  /* 하단 4버튼(옵션/기권/이전/다음)은 박스 없이 배경에 자연스럽게 녹아있다가
+     눌렀을 때만 살짝 밝아지는 chess.com 스타일로 표시함 */
+  #prevBtn, #nextBtn, #resignBtn, #latestBtn, .xeon-controls .xeon-btn {
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    color: #ccc;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.12s ease;
+  }
+  #prevBtn:active, #nextBtn:active, #resignBtn:active, #latestBtn:active,
+  .xeon-controls .xeon-btn:active {
+    background: rgba(255,255,255,0.1);
+  }
+  #prevBtn.look-disabled, #nextBtn.look-disabled {
+    background: transparent;
+  }
+  #resignBtn {
+    color: #ff9a9a;
+  }
+
+  #prevBtn { grid-area: prev; margin: 0; }
+  #nextBtn { grid-area: next; margin: 0; }
+  #resignBtn { grid-area: resign; margin: 0; }
+
+  #latestBtn {
+    grid-area: opt;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .xeon-controls {
+    grid-area: opt;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 0 !important;
+  }
+  .xeon-controls .xeon-btn {
+    width: 100%;
+  }
+  .xeon-undo-status {
+    font-size: 11px;
+    justify-content: center;
+    text-align: center;
+    color: #999;
+  }
+
+  #adminDeleteBtn {
+    grid-area: admin;
+    margin-top: 0;
+    width: 100%;
   }
 }
 
 /* =========================================================
-   세로모드 전용 레이아웃
-   - 로그(log-panel)는 숨김
-   - 보드를 맨 위로, 그 아래에 기권/관리자 삭제 버튼을 가로로 배치
-   - 다시 그 아래에 이전/다음/최신수/무르기 버튼을 작게 줄여서 배치
+   세로모드 전용 레이아웃 (가로모드와 동일한 그리드 구조를 세로로 재배치)
+   - 맨 위: 이름/닉네임 줄
+   - 그 아래: 보드(화면 폭에 맞춰 크게)
+   - 그 아래: 로그(가로모드처럼 숨기지 않고 그대로 표시)
+   - 맨 아래: 옵션(무르기/최신수) · 기권 · 이전 · 다음, 4버튼 한 줄
+     (가로모드 하단 바와 동일한 grid-area 이름을 그대로 재사용)
 ========================================================= */
 @media (orientation: portrait) {
+  :root {
+    --cell: clamp(32px, 12vw, 72px);
+  }
+
   .game-wrap {
-    padding: 8px 8px 30px;
+    padding: 8px 8px 24px;
   }
 
   .game-layout {
-    flex-direction: column;
-    align-items: center;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: auto auto auto auto auto;
+    grid-template-areas:
+      "names names names names"
+      "board board board board"
+      "log   log   log   log"
+      "opt   resign prev  next"
+      "admin admin admin admin";
     gap: 10px;
+    align-items: stretch;
+    justify-items: stretch;
+  }
+
+  /* 이 래퍼들은 가로모드와 마찬가지로 시각적 박스가 아니라
+     그리드 배치를 위한 통로 역할만 함 */
+  .left-col, .right-col, .history-nav {
+    display: contents;
   }
 
   .board-col {
-    order: 1;
+    grid-area: board;
     width: 100%;
-  }
-
-  .left-col {
-    order: 2;
-    flex-direction: row;
-    justify-content: center;
-    align-items: center;
     padding-top: 0;
-    gap: 8px;
+  }
+
+  .chess-board {
+    margin: 0 auto;
+  }
+
+  /* 이름(닉네임) 줄 — 캐릭터/닉네임이 보이는 자리, 가장 눈에 띄게 크게 */
+  /* 이름(닉네임) 줄 — 캐릭터가 있던 자리를 대신해서 맨 위로 옮기고,
+     아바타 아이콘 + 닉네임을 크게 키워서 눈에 띄게 표시 */
+  .player-row {
+    grid-area: names;
     width: 100%;
-  }
-
-  .right-col {
-    order: 3;
-    width: min(100%, calc(var(--cell) * 8));
-  }
-
-  .log-panel {
-    display: none;
-  }
-
-  .resign-btn, .admin-delete-btn {
-    margin-top: 0;
-    padding: 8px 14px;
-    font-size: 13px;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 4px 2px;
   }
 
   .player-name {
-    font-size: 13px;
+    font-size: 20px;
   }
 
   .player-time {
+    font-size: 13px;
+  }
+
+  #logPanel {
+    grid-area: log;
+    height: 180px;
+    aspect-ratio: auto;
+    width: 100%;
+  }
+
+  /* 하단 4버튼(옵션/기권/이전/다음) — 가로모드와 동일하게 배경 없이
+     녹아있다가 눌렀을 때만 살짝 밝아지는 스타일 */
+  #prevBtn, #nextBtn, #resignBtn, #latestBtn, .xeon-controls .xeon-btn {
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    color: #ccc;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 10px 6px;
+    transition: background 0.12s ease;
+  }
+  #prevBtn:active, #nextBtn:active, #resignBtn:active, #latestBtn:active,
+  .xeon-controls .xeon-btn:active {
+    background: rgba(255,255,255,0.1);
+  }
+  #prevBtn.look-disabled, #nextBtn.look-disabled {
+    background: transparent;
+  }
+  #resignBtn {
+    color: #ff9a9a;
+  }
+
+  #prevBtn { grid-area: prev; margin: 0; }
+  #nextBtn { grid-area: next; margin: 0; }
+  #resignBtn { grid-area: resign; margin: 0; }
+
+  #latestBtn {
+    grid-area: opt;
+    margin: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .xeon-controls {
+    grid-area: opt;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 0 !important;
+  }
+  .xeon-controls .xeon-btn {
+    width: 100%;
+  }
+  .xeon-undo-status {
     font-size: 11px;
+    justify-content: center;
+    text-align: center;
+    color: #999;
   }
 
-  .history-nav {
-    gap: 6px;
-  }
-
-  .nav-btn, #latestBtn, #undoRequestBtn {
-    padding: 7px 8px;
-    font-size: 12px;
+  #adminDeleteBtn {
+    grid-area: admin;
+    margin-top: 0;
+    width: 100%;
   }
 }
 
@@ -700,4 +878,59 @@ body {
   font-size: 10px;
   color: #666;
   margin-top: 2px;
+}
+
+/* ===================== 프로모션(승진) 선택 모달 ===================== */
+
+.promo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1500;
+  padding: 16px;
+}
+
+.promo-box {
+  background: #2a2a33;
+  border-radius: 16px;
+  padding: 20px;
+  text-align: center;
+}
+
+.promo-title {
+  font-size: 14px;
+  color: #ccc;
+  margin: 0 0 14px;
+}
+
+.promo-choices {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.promo-piece-btn {
+  width: 64px;
+  height: 64px;
+  font-size: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1e1e24;
+  border: 2px solid #444;
+  border-radius: 10px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.promo-piece-btn:active {
+  background: #33333d;
+}
+
+/* AI가 추천하는 승진 기물 — 판 위 힌트와 동일한 파란 테두리로 표시 */
+.promo-piece-btn.ai-suggest-piece {
+  border-color: rgba(64, 132, 255, 0.9);
 }
