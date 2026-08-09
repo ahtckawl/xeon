@@ -44,21 +44,22 @@
       <button id="adminDeleteBtn" class="btn admin-delete-btn" style="display:none;">방 삭제(관리자)</button>
     </div>
 
-    <div class="board-col">
-      <!-- 왼쪽=방장, 오른쪽=도전자 (보는 사람과 무관하게 항상 동일한 배치) -->
-      <div class="player-row">
-        <div class="player-block player-block-left">
-          <span id="hostName" class="player-name">방장</span>
-          <span id="hostTime" class="player-time"></span>
-        </div>
-        <div class="player-block player-block-right">
-          <span id="challengerName" class="player-name">도전자</span>
-          <span id="challengerTime" class="player-time"></span>
-        </div>
+    <!-- 왼쪽=방장, 오른쪽=도전자 (보는 사람과 무관하게 항상 동일한 배치).
+         가로모드에서는 오른쪽 사이드바 위쪽("캐릭터" 자리)으로, 세로모드에서는
+         보드 위로 배치됨(각 미디어쿼리에서 grid-area / order로 위치만 바꿈) -->
+    <div class="player-row">
+      <div class="player-block player-block-left">
+        <span id="hostName" class="player-name">방장</span>
+        <span id="hostTime" class="player-time"></span>
       </div>
+      <div class="player-block player-block-right">
+        <span id="challengerName" class="player-name">도전자</span>
+        <span id="challengerTime" class="player-time"></span>
+      </div>
+    </div>
 
+    <div class="board-col">
       <div id="board" class="chess-board"></div>
-
       <p id="gameStatus" class="game-status"></p>
     </div>
 
@@ -69,9 +70,6 @@
         <button id="nextBtn" class="btn nav-btn">다음 ▶</button>
       </div>
       <button id="latestBtn" class="btn full-width-btn">최신 수로 이동</button>
-      <button id="undoRequestBtn" class="btn full-width-btn" disabled title="다음 단계에서 구현 예정">
-        무르기 요청
-      </button>
     </div>
 
   </div>
