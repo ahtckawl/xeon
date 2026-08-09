@@ -198,7 +198,7 @@ function buildExtraUI() {
     const style = document.createElement("style");
     style.id = "xeon-extra-style";
     style.textContent = `
-      .xeon-controls { display:flex; gap:8px; align-items:stretch; margin-top:10px; flex-wrap:wrap; }
+      .xeon-controls { display:flex; gap:8px; align-items:stretch; margin-top:10px; flex-wrap:wrap; order:5; }
       .xeon-btn { padding:6px 14px; border-radius:6px; border:1px solid #666; background:#2b2b2b; color:#fff; cursor:pointer; font-size:14px; box-sizing:border-box; }
       .xeon-btn:hover:not(:disabled) { background:#3a3a3a; }
       .xeon-btn:disabled { opacity:.4; cursor:default; }
@@ -248,7 +248,86 @@ function buildExtraUI() {
   controls.appendChild(undoCountdownEl);
   controls.appendChild(undoStatusEl);
 
-  gamePhase.appendChild(controls);
+  // 가로모드에서 그리드의 "opt" 자리(무르기/최신수 토글)에 들어가려면
+  // .game-layout의 그리드 아이템이어야 하므로 그 안에 넣음
+  const gameLayoutEl = document.querySelector(".game-layout");
+  (gameLayoutEl || gamePhase).appendChild(controls);
+
+  buildPromotionUi();
+}
+
+/* =========================================================
+   폰 승진(프로모션) 기물 선택 모달
+   - 퀸/룩/비숍/나이트를 가로로 나열해서 탭으로 고르게 함
+   - AI 힌트가 켜져 있고, 그 자리에서 AI가 추천한 승진 기물이 있으면
+     그 선택지에 파란 테두리(.ai-suggest-piece)를 표시함
+========================================================= */
+let promoOverlayEl = null;
+let promoTitleEl = null;
+let promoChoicesEl = null;
+let promoResolve = null;
+
+function buildPromotionUi() {
+  if (document.getElementById("xeonPromoOverlay")) return;
+
+  promoOverlayEl = document.createElement("div");
+  promoOverlayEl.id = "xeonPromoOverlay";
+  promoOverlayEl.className = "promo-overlay";
+  promoOverlayEl.style.display = "none";
+
+  const box = document.createElement("div");
+  box.className = "promo-box";
+
+  promoTitleEl = document.createElement("p");
+  promoTitleEl.className = "promo-title";
+  promoTitleEl.textContent = "승진할 기물을 선택하세요";
+
+  promoChoicesEl = document.createElement("div");
+  promoChoicesEl.className = "promo-choices";
+
+  box.appendChild(promoTitleEl);
+  box.appendChild(promoChoicesEl);
+  promoOverlayEl.appendChild(box);
+
+  // 오버레이 바깥(뒷배경) 클릭 시 취소
+  promoOverlayEl.addEventListener("click", (e) => {
+    if (e.target === promoOverlayEl) closePromotionModal(null);
+  });
+
+  document.body.appendChild(promoOverlayEl);
+}
+
+// color: "w" | "b" (승진하는 쪽), aiPickLetter: "q"|"r"|"b"|"n" | null (AI 추천 기물)
+function askPromotionChoice(color, aiPickLetter) {
+  buildPromotionUi();
+  promoChoicesEl.innerHTML = "";
+
+  const order = ["q", "r", "b", "n"];
+  for (const letter of order) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "promo-piece-btn";
+    const pieceChar = color === "w" ? letter.toUpperCase() : letter;
+    btn.textContent = PIECES[pieceChar] || pieceChar;
+    if (aiPickLetter && aiPickLetter.toLowerCase() === letter) {
+      btn.classList.add("ai-suggest-piece");
+    }
+    btn.addEventListener("click", () => closePromotionModal(letter));
+    promoChoicesEl.appendChild(btn);
+  }
+
+  promoOverlayEl.style.display = "flex";
+
+  return new Promise((resolve) => {
+    promoResolve = resolve;
+  });
+}
+
+function closePromotionModal(letterOrNull) {
+  if (promoOverlayEl) promoOverlayEl.style.display = "none";
+  const resolve = promoResolve;
+  promoResolve = null;
+  if (resolve) resolve(letterOrNull);
 }
 
 /* =========================================================
@@ -435,6 +514,8 @@ function bindUI() {
     renderBoardAndLog();
   });
 
+  bindLogSwipe();
+
   leaveWaitingBtn.addEventListener("click", leaveRoom);
   resignBtn.addEventListener("click", handleResignClick);
   adminDeleteBtn.addEventListener("click", handleAdminDelete);
@@ -457,6 +538,81 @@ async function handleReadyClick() {
     renderWaitingPhase();
     alert("준비 처리에 실패했어요: " + (e.message || "다시 시도해주세요"));
   }
+}
+
+/* =========================================================
+   로그 패널 좌우 드래그(스와이프)로 이전/다음 수 이동
+   - 세로모드 전용 기능. 세로모드에서는 로그 패널이 얕고 넓은 띠 형태라
+     좌우 스와이프가 자연스러움
+   - 가로모드에서는 로그 패널이 세로로 긴 직사각형 목록이라 위아래 스크롤이
+     기본 동작이어야 하므로, 이 기능은 가로모드일 때 아예 동작하지 않음
+     (기존 위아래 스크롤을 그대로 씀)
+   - 세로 스크롤(로그 목록 위아래 스크롤)과 겹치지 않도록, 가로 이동량이
+     세로 이동량보다 뚜렷하게 클 때만 스와이프로 인식함
+   - 스와이프가 인식된 경우, 그 아래 있던 log-btn(수 클릭)의 클릭 이벤트는
+     막아서 스와이프 끝에 엉뚱한 수로 튀는 걸 방지함
+========================================================= */
+function bindLogSwipe() {
+  const SWIPE_THRESHOLD = 40; // 이 정도 가로로 움직여야 스와이프로 인정
+  const isPortrait = () => window.matchMedia("(orientation: portrait)").matches;
+  let startX = null;
+  let startY = null;
+  let swiping = false;
+  let suppressClick = false;
+
+  logPanelEl.style.touchAction = "pan-y";
+
+  logPanelEl.addEventListener("pointerdown", (e) => {
+    if (!isPortrait()) return; // 가로모드에서는 스와이프 감지 자체를 시작하지 않음
+    startX = e.clientX;
+    startY = e.clientY;
+    swiping = false;
+  });
+
+  logPanelEl.addEventListener("pointermove", (e) => {
+    if (startX === null) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!swiping && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      swiping = true;
+    }
+  });
+
+  logPanelEl.addEventListener("pointerup", (e) => {
+    if (startX === null) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (swiping && Math.abs(dx) >= SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+      suppressClick = true;
+      if (dx < 0) {
+        nextBtn.click(); // 왼쪽으로 드래그 -> 다음 수
+      } else {
+        prevBtn.click(); // 오른쪽으로 드래그 -> 이전 수
+      }
+    }
+    startX = null;
+    startY = null;
+    swiping = false;
+  });
+
+  logPanelEl.addEventListener("pointercancel", () => {
+    startX = null;
+    startY = null;
+    swiping = false;
+  });
+
+  // 스와이프 직후 발생하는 click(예: log-btn 클릭)을 한 번만 무시
+  logPanelEl.addEventListener(
+    "click",
+    (e) => {
+      if (suppressClick) {
+        suppressClick = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    },
+    true
+  );
 }
 
 /* =========================================================
@@ -552,12 +708,17 @@ async function acceptUndoNow() {
 function renderUndoUI() {
   if (!room) return;
   const isPlayer = myRole === "host" || myRole === "challenger";
+  const total = (room.moves || []).length;
+  // 기보를 과거로 넘겨서 보고 있는 중(무르기 요청 상황과는 무관) — 이 경우 무르기 버튼 대신
+  // "최신 수로 돌아가기" 버튼을 같은 자리에 보여주고, 최신 수로 돌아오면 다시 무르기가 뜸
+  const browsingHistory = viewIndex !== total;
 
   flipBtn.style.display = myRole === "spectator" ? "inline-block" : "none";
 
   if (room.status !== "playing" || !isPlayer) {
     undoBtn.style.display = "none";
     undoStatusEl.textContent = "";
+    latestBtn.style.display = "none";
     clearUndoTimer();
     return;
   }
@@ -566,8 +727,10 @@ function renderUndoUI() {
 
   if (pending && pending.by === myRole) {
     // 내가 요청함 → 상대 응답(또는 5초 시간 초과) 대기, 5초 지나면 스스로 취소
+    // (진행 중인 요청은 기보를 보고 있어도 계속 보여줌 — 시간이 걸린 문제라서)
     undoBtn.style.display = "none";
     undoStatusEl.textContent = "무르기 요청을 보냈어요";
+    latestBtn.style.display = "none";
     startUndoTimer(pending.requestedAt, autoDeclineUndo);
     return;
   }
@@ -579,11 +742,22 @@ function renderUndoUI() {
     undoBtn.textContent = "수락";
     undoBtn.onclick = acceptUndoNow;
     undoStatusEl.textContent = "상대가 무르기를 요청했어요";
+    latestBtn.style.display = "none";
     startUndoTimer(pending.requestedAt, autoDeclineUndo);
     return;
   }
 
   clearUndoTimer();
+
+  if (browsingHistory) {
+    undoBtn.style.display = "none";
+    undoStatusEl.textContent = "";
+    latestBtn.style.display = "inline-block";
+    latestBtn.disabled = false;
+    return;
+  }
+
+  latestBtn.style.display = "none";
   undoBtn.textContent = "무르기 요청";
   undoBtn.onclick = handleUndoRequestClick;
 
@@ -761,7 +935,12 @@ async function updateAiSuggestionIfNeeded(isMyTurnNow) {
   const fenAtRequest = room.fen;
   try {
     const res = await callApi("/api/hint-move", { roomId });
-    aiSuggestion = res.moveStr ? uciToCoords(res.moveStr) : null;
+    if (res.moveStr) {
+      // UCI 문자열(예: "e7e8q")의 5번째 글자가 있으면 AI가 추천하는 승진 기물
+      aiSuggestion = { ...uciToCoords(res.moveStr), promotion: res.moveStr.length > 4 ? res.moveStr[4].toLowerCase() : null };
+    } else {
+      aiSuggestion = null;
+    }
     aiSuggestionForFen = fenAtRequest;
   } catch (e) {
     console.error("[AI 힌트 계산 실패]", e);
@@ -883,6 +1062,10 @@ function renderBoardAndLog() {
   prevBtn.classList.toggle("look-disabled", viewIndex === 0);
   nextBtn.classList.toggle("look-disabled", viewIndex === total);
   latestBtn.disabled = isLatest;
+
+  // prev/next/최신수/기보 클릭 등 render() 전체를 거치지 않는 경로에서도
+  // "기보 보는 중 ↔ 최신 수" 상태에 따라 무르기/최신수 버튼이 즉시 갱신되도록 함
+  renderUndoUI();
 }
 
 function drawBoard(boardGrid, lastMove, isMyTurnNow) {
@@ -936,6 +1119,10 @@ function drawBoard(boardGrid, lastMove, isMyTurnNow) {
 }
 
 function renderLog(total) {
+  // 사용자가 로그를 위로 스크롤해서 옛날 수를 보고 있는 중이면 그 위치를 존중하고,
+  // 이미 맨 아래(최신 수) 근처에 있었을 때만 새로 렌더링 후에도 맨 아래로 붙여줌
+  const wasNearBottom = logPanelEl.scrollHeight - logPanelEl.scrollTop - logPanelEl.clientHeight < 40;
+
   logPanelEl.innerHTML = "";
   for (let i = 1; i <= total; i++) {
     const btn = document.createElement("button");
@@ -951,7 +1138,9 @@ function renderLog(total) {
     });
     logPanelEl.appendChild(btn);
   }
-  logPanelEl.scrollTop = logPanelEl.scrollHeight;
+  if (wasNearBottom) {
+    logPanelEl.scrollTop = logPanelEl.scrollHeight;
+  }
 }
 
 const RESULT_REASON_LABEL = {
@@ -1213,13 +1402,31 @@ async function submitMove(fromR, fromC, toR, toC) {
     optimisticGame = null;
   }
 
+  let promotionPiece = undefined;
+  if (needsPromotion) {
+    const promotingColor = optimisticGame ? optimisticGame.turn() : (myColor === "black" ? "b" : "w");
+    // AI 힌트가 켜져 있고, 지금 두려는 수가 AI가 추천한 바로 그 수라면 추천 기물을 파란 테두리로 보여줌
+    const aiPick = (aiHintEnabled && aiSuggestion && aiSuggestion.promotion &&
+      aiSuggestion.from.r === fromR && aiSuggestion.from.c === fromC &&
+      aiSuggestion.to.r === toR && aiSuggestion.to.c === toC)
+      ? aiSuggestion.promotion : null;
+    promotionPiece = await askPromotionChoice(promotingColor, aiPick);
+    if (!promotionPiece) {
+      // 취소함 — 선택 상태만 정리하고 이동은 진행하지 않음
+      selectedPos = null;
+      possibleMoves = [];
+      renderBoardAndLog();
+      return;
+    }
+  }
+
   // 낙관적 업데이트: 서버 응답(왕복)을 기다리지 않고 바로 화면에 반영해서 체감 지연을 없앰.
   // 서버가 최종 검증하는 건 그대로 유지 — 실패하면 catch에서 원래 상태로 되돌림.
   const prevRoom = room;
   const prevHistory = history;
   if (optimisticGame) {
     try {
-      const mv = optimisticGame.move({ from, to, promotion: needsPromotion ? "q" : undefined });
+      const mv = optimisticGame.move({ from, to, promotion: needsPromotion ? promotionPiece : undefined });
       if (mv) {
         const optimisticMoves = [...(room.moves || []), mv.lan];
         room = {
@@ -1242,7 +1449,7 @@ async function submitMove(fromR, fromC, toR, toC) {
   }
 
   try {
-    await callApi("/api/move", { roomId, from, to, promotion: needsPromotion ? "q" : undefined });
+    await callApi("/api/move", { roomId, from, to, promotion: needsPromotion ? promotionPiece : undefined });
     // 성공하면 곧이어 onSnapshot이 (타이머 등 세부 필드까지 포함한) 진짜 상태로 자연스럽게 덮어씀
   } catch (e) {
     console.error(e);
