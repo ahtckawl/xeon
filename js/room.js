@@ -198,8 +198,8 @@ function buildExtraUI() {
     const style = document.createElement("style");
     style.id = "xeon-extra-style";
     style.textContent = `
-      .xeon-controls { display:flex; gap:8px; align-items:stretch; margin-top:10px; flex-wrap:wrap; order:5; }
-      .xeon-btn { padding:6px 14px; border-radius:6px; border:1px solid #666; background:#2b2b2b; color:#fff; cursor:pointer; font-size:14px; box-sizing:border-box; }
+      .xeon-controls { display:flex; gap:8px; align-items:stretch; margin-top:10px; flex-wrap:wrap; order:5; pointer-events:none; }
+      .xeon-btn { padding:6px 14px; border-radius:6px; border:1px solid #666; background:#2b2b2b; color:#fff; cursor:pointer; font-size:14px; box-sizing:border-box; pointer-events:auto; }
       .xeon-btn:hover:not(:disabled) { background:#3a3a3a; }
       .xeon-btn:disabled { opacity:.4; cursor:default; }
       .xeon-undo-status { display:flex; align-items:center; font-size:13px; color:#ccc; }
@@ -918,6 +918,7 @@ async function recordHistoryAction(action) {
       aiHintEnabled = !!res.enabled;
       aiSuggestion = null;
       aiSuggestionForFen = null;
+      showAiToast(aiHintEnabled ? "AI 켜짐" : "AI 꺼짐");
       renderBoardAndLog();
     }
   } catch (e) {
@@ -925,6 +926,25 @@ async function recordHistoryAction(action) {
   } finally {
     aiActionPending = false;
   }
+}
+
+// 비밀 코드가 인식됐을 때 본인에게만 부드럽게 떴다가 3초 후 사라지는 알림
+// (브라우저 알림 API는 사용하지 않음)
+function showAiToast(text) {
+  let el = document.getElementById("xeon-ai-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "xeon-ai-toast";
+    el.style.cssText =
+      "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);" +
+      "background:rgba(0,0,0,.75);color:#fff;padding:8px 16px;border-radius:20px;" +
+      "font-size:13px;z-index:3000;opacity:0;transition:opacity .3s ease;pointer-events:none;";
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  requestAnimationFrame(() => { el.style.opacity = "1"; });
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => { el.style.opacity = "0"; }, 3000);
 }
 
 async function updateAiSuggestionIfNeeded(isMyTurnNow) {
