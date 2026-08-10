@@ -149,7 +149,7 @@ async function init() {
 
   const snap = await getDoc(roomRef);
   if (!snap.exists()) {
-    document.body.innerHTML = "<p style='color:#fff;padding:24px;'>존재하지 않는 방이에요.</p>";
+    window.location.href = "index.html";
     return;
   }
 
@@ -169,7 +169,6 @@ async function init() {
       if (roomGoneHandled) return;
       roomGoneHandled = true;
       localStorage.removeItem("xeon_last_room");
-      alert("삭제된 방입니다");
       window.location.href = "index.html";
       return;
     }
