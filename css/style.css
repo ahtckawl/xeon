@@ -544,10 +544,14 @@ body {
 
   #logPanel {
     grid-area: log;
-    height: auto;
-    aspect-ratio: auto;
-    flex: 1;
+    /* 1fr 행이 콘텐츠 높이에 따라 같이 늘어나 버리는 문제를 막기 위해,
+       보드 높이(8칸)에서 위쪽 이름 줄 높이만큼 뺀 값으로 고정하고
+       그 안에서만 스크롤되게 함 */
+    height: calc(var(--cell) * 8 - 84px);
     min-height: 120px;
+    max-height: calc(var(--cell) * 8 - 84px);
+    aspect-ratio: auto;
+    overflow-y: auto;
   }
 
   /* 하단 4버튼(옵션/기권/이전/다음)은 박스 없이 배경에 자연스럽게 녹아있다가
