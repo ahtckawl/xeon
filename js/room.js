@@ -560,10 +560,9 @@ function bindLogSwipe() {
   let swiping = false;
   let suppressClick = false;
 
-  logPanelEl.style.touchAction = "pan-y";
-
   logPanelEl.addEventListener("pointerdown", (e) => {
-    if (!isPortrait()) return; // 가로모드에서는 스와이프 감지 자체를 시작하지 않음
+    if (!isPortrait()) return; // 가로모드에서는 스와이프 감지 자체를 시작하지 않음 (기존 위아래 스크롤 그대로 둠)
+    logPanelEl.style.touchAction = "pan-y";
     startX = e.clientX;
     startY = e.clientY;
     swiping = false;
@@ -967,39 +966,67 @@ function classifyMoveLoss(lossCp) {
   return "❌";                  // 안좋은 수
 }
 
+const fenEvalInflight = new Map(); // fen -> 진행 중인 평가 Promise (같은 포지션 중복 요청 방지)
+
 async function cachedEval(fen) {
   if (fenEvalCache.has(fen)) return fenEvalCache.get(fen);
-  let val = null;
-  try {
-    val = await getPositionEval(fen, 300);
-  } catch (e) {
-    val = null;
-  }
-  fenEvalCache.set(fen, val);
-  return val;
+  if (fenEvalInflight.has(fen)) return fenEvalInflight.get(fen);
+  const p = (async () => {
+    let val = null;
+    try {
+      val = await getPositionEval(fen, 300);
+    } catch (e) {
+      val = null;
+    }
+    fenEvalCache.set(fen, val);
+    fenEvalInflight.delete(fen);
+    return val;
+  })();
+  fenEvalInflight.set(fen, p);
+  return p;
 }
 
+/* 예전에는 수(ply) 하나마다 evalBefore/evalAfter를 순서대로 기다렸어서
+   (기보 다시보기할 때) 한 수 판단하는 데 최대 3초 가까이 걸렸음.
+   이제는 필요한 포지션들을 몇 개씩 동시에 평가 요청해서 훨씬 빨리 끝남.
+   같은 포지션(예: N수의 "이후"와 N+1수의 "이전"은 같은 fen)은 cachedEval의
+   캐시 + 진행 중 요청 재사용으로 중복 호출되지 않음 */
 function scheduleQualityAnalysis(total) {
   qualityComputeChain = qualityComputeChain.then(async () => {
+    const pending = [];
     for (let i = 1; i <= total; i++) {
       if (moveQuality.has(i)) continue;
       const fenBefore = history.fens[i - 1];
       const fenAfter = history.fens[i];
       if (!fenBefore || !fenAfter) continue;
-      try {
-        const evalBefore = await cachedEval(fenBefore);
-        const evalAfter = await cachedEval(fenAfter);
-        if (evalBefore === null || evalAfter === null) continue;
-        const moverIsWhite = i % 2 === 1; // 1수, 3수... = 백
-        const loss = moverIsWhite ? (evalBefore - evalAfter) : (evalAfter - evalBefore);
-        moveQuality.set(i, classifyMoveLoss(loss));
-        renderLog((room.moves || []).length);
-      } catch (e) {
-        // 엔진 실패는 표시만 안 뜰 뿐 게임 진행엔 영향 없으니 조용히 넘어감
+      pending.push({ i, fenBefore, fenAfter });
+    }
+    if (pending.length === 0) return;
+
+    const CONCURRENCY = 4; // 서버 부하를 고려해 한 번에 최대 4개 포지션까지 동시 평가
+    let cursor = 0;
+    async function worker() {
+      while (cursor < pending.length) {
+        const { i, fenBefore, fenAfter } = pending[cursor++];
+        try {
+          const [evalBefore, evalAfter] = await Promise.all([
+            cachedEval(fenBefore),
+            cachedEval(fenAfter),
+          ]);
+          if (evalBefore === null || evalAfter === null) continue;
+          const moverIsWhite = i % 2 === 1; // 1수, 3수... = 백
+          const loss = moverIsWhite ? (evalBefore - evalAfter) : (evalAfter - evalBefore);
+          moveQuality.set(i, classifyMoveLoss(loss));
+          renderLog((room.moves || []).length);
+        } catch (e) {
+          // 엔진 실패는 표시만 안 뜰 뿐 게임 진행엔 영향 없으니 조용히 넘어감
+        }
       }
     }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pending.length) }, worker));
   });
 }
+
 
 /* =========================================================
    닉네임(users/{uid}) + 전적(playerStats/{uid}) 구독
