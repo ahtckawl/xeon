@@ -17,6 +17,16 @@ const PIECES = {
   'r': '♜', 'n': '♞', 'b': '♝', 'q': '♛', 'k': '♚', 'p': '♟',
   'R': '♖', 'N': '♘', 'B': '♗', 'Q': '♕', 'K': '♔', 'P': '♙'
 };
+
+// 기물 이미지(Lichess가 쓰는 cburnett 세트, GPLv2+ — 원작자 Colin M.L. Burnett)
+// 유니코드 텍스트 대신 이 이미지를 셀 배경으로 표시함
+const PIECE_IMG_BASE = "https://cdn.jsdelivr.net/gh/lichess-org/lila@master/public/piece/cburnett/";
+const PIECE_IMAGES = {
+  'r': PIECE_IMG_BASE + "bR.svg", 'n': PIECE_IMG_BASE + "bN.svg", 'b': PIECE_IMG_BASE + "bB.svg",
+  'q': PIECE_IMG_BASE + "bQ.svg", 'k': PIECE_IMG_BASE + "bK.svg", 'p': PIECE_IMG_BASE + "bP.svg",
+  'R': PIECE_IMG_BASE + "wR.svg", 'N': PIECE_IMG_BASE + "wN.svg", 'B': PIECE_IMG_BASE + "wB.svg",
+  'Q': PIECE_IMG_BASE + "wQ.svg", 'K': PIECE_IMG_BASE + "wK.svg", 'P': PIECE_IMG_BASE + "wP.svg"
+};
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
 function squareName(r, c) { return FILES[c] + (8 - r); }
@@ -307,7 +317,12 @@ function askPromotionChoice(color, aiPickLetter) {
     btn.type = "button";
     btn.className = "promo-piece-btn";
     const pieceChar = color === "w" ? letter.toUpperCase() : letter;
-    btn.textContent = PIECES[pieceChar] || pieceChar;
+    if (PIECE_IMAGES[pieceChar]) {
+      btn.style.backgroundImage = `url("${PIECE_IMAGES[pieceChar]}")`;
+    } else {
+      btn.textContent = PIECES[pieceChar] || pieceChar;
+    }
+    btn.setAttribute("aria-label", pieceChar);
     if (aiPickLetter && aiPickLetter.toLowerCase() === letter) {
       btn.classList.add("ai-suggest-piece");
     }
@@ -828,8 +843,14 @@ function renderWaitingPhase() {
 
 function renderNames() {
   ensureProfileSubscriptions();
-  hostNameEl.textContent = (hostNickname || "방장") + formatStatsLabel(hostStats);
-  challengerNameEl.textContent = (challengerNickname || "도전자") + formatStatsLabel(challengerStats);
+  const hostIsMe = myRole === "host";
+  const challengerIsMe = myRole === "challenger";
+
+  hostNameEl.textContent = (hostNickname || "방장") + (hostIsMe ? "(ME)" : "") + formatStatsLabel(hostStats);
+  challengerNameEl.textContent = (challengerNickname || "도전자") + (challengerIsMe ? "(ME)" : "") + formatStatsLabel(challengerStats);
+
+  hostNameEl.classList.toggle("me", hostIsMe);
+  challengerNameEl.classList.toggle("me", challengerIsMe);
 
   const hostIsTurn = room.hostColor === room.turn;
   hostNameEl.classList.toggle("turn-active", hostIsTurn);
@@ -1128,7 +1149,10 @@ function drawBoard(boardGrid, lastMove, isMyTurnNow) {
       cell.className = `cell ${isLightCell ? "white-cell" : "black-cell"}`;
 
       const piece = boardGrid[r][c];
-      if (piece) cell.textContent = PIECES[piece] || "";
+      if (piece && PIECE_IMAGES[piece]) {
+        cell.classList.add("has-piece");
+        cell.style.backgroundImage = `url("${PIECE_IMAGES[piece]}")`;
+      }
 
       if (lastMove) {
         const to = squareToRC(lastMove.to);
@@ -1363,7 +1387,9 @@ function handleCellPointerDown(e, r, c, boardGrid, isMyTurnNow) {
 
   dragGhostEl = document.createElement("div");
   dragGhostEl.className = "drag-ghost";
-  dragGhostEl.textContent = PIECES[piece] || "";
+  if (PIECE_IMAGES[piece]) {
+    dragGhostEl.style.backgroundImage = `url("${PIECE_IMAGES[piece]}")`;
+  }
   document.body.appendChild(dragGhostEl);
   positionDragGhost(e.clientX, e.clientY);
 
