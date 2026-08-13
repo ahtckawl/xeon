@@ -841,13 +841,25 @@ function renderWaitingPhase() {
   waitingStatusEl.textContent = amReady ? "상대의 준비를 기다리는 중이에요..." : "";
 }
 
+function setPlayerNameText(el, nickname, isMe, stats) {
+  el.textContent = "";
+  el.appendChild(document.createTextNode(nickname));
+  if (isMe) {
+    const tag = document.createElement("span");
+    tag.className = "me-tag";
+    tag.textContent = "(me)";
+    el.appendChild(tag);
+  }
+  el.appendChild(document.createTextNode(formatStatsLabel(stats)));
+}
+
 function renderNames() {
   ensureProfileSubscriptions();
   const hostIsMe = myRole === "host";
   const challengerIsMe = myRole === "challenger";
 
-  hostNameEl.textContent = (hostNickname || "방장") + (hostIsMe ? "(ME)" : "") + formatStatsLabel(hostStats);
-  challengerNameEl.textContent = (challengerNickname || "도전자") + (challengerIsMe ? "(ME)" : "") + formatStatsLabel(challengerStats);
+  setPlayerNameText(hostNameEl, hostNickname || "방장", hostIsMe, hostStats);
+  setPlayerNameText(challengerNameEl, challengerNickname || "도전자", challengerIsMe, challengerStats);
 
   hostNameEl.classList.toggle("me", hostIsMe);
   challengerNameEl.classList.toggle("me", challengerIsMe);
