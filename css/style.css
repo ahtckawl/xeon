@@ -367,10 +367,14 @@ body {
   color: #fff;
 }
 
-/* 내 닉네임(ME) — 항상 주황색으로 강조 (턴 활성 상태여도 유지) */
+/* 내 닉네임(me) — 항상 주황색으로 강조 (턴 활성 상태여도 유지) */
 .player-name.me,
 .player-name.turn-active.me {
   color: #ff9800;
+}
+.player-name .me-tag {
+  font-size: 0.7em;
+  margin-left: 2px;
 }
 
 .player-time { font-size: 13px; color: #888; }
@@ -519,48 +523,43 @@ body {
 ========================================================= */
 @media (orientation: landscape) {
   :root {
-    --cell: clamp(30px, 8.8vh, 82px);
+    /* 버튼 줄이 오른쪽 컬럼 안으로 들어가면서 보드가 그 자리까지 침범해
+       세로로 더 커지므로, 기준 비율도 그만큼 올림 */
+    --cell: clamp(30px, 10vh, 90px);
   }
 
   .game-layout {
     display: grid;
-    /* 오른쪽 컬럼(이름/로그)을 board 한 칸보다 넓게 잡아서 로그판 가로 폭을 늘림 */
-    grid-template-columns: 1fr 1fr 1fr 1.3fr;
-    grid-template-rows: auto auto auto;
+    /* 왼쪽(보드) : 오른쪽(이름/로그/버튼) = 3 : 2.
+       오른쪽은 버튼 4개를 나열할 수 있도록 다시 4칸으로 잘게 쪼갬(합 2fr) */
+    grid-template-columns: 3fr 0.5fr 0.5fr 0.5fr 0.5fr;
+    grid-template-rows: auto 1fr auto auto;
     grid-template-areas:
-      "board board board side"
-      "opt   resign prev  next"
-      "admin admin admin admin";
-    gap: 10px;
+      "board names  names  names  names"
+      "board log    log    log    log"
+      "board opt    resign prev   next"
+      "admin admin  admin  admin  admin";
+    gap: 8px;
     align-items: stretch;
     justify-content: stretch;
   }
 
-  /* left-col/history-nav만 통로 역할, right-col은 실제 박스를 유지해서
-     이름 줄 + 로그판을 세로로 묶어 체스판 높이에 정확히 맞춤 */
-  .left-col, .history-nav {
+  /* 이 래퍼들은 시각적 박스가 아니라 그리드 배치를 위한 통로 역할만 함 */
+  .left-col, .right-col, .history-nav {
     display: contents;
   }
 
   .board-col {
     grid-area: board;
+    /* 이름+로그+버튼 3줄 높이를 전부 합친 만큼(=옛 버튼 자리까지) 세로로
+       꽉 채우고, 가로로는 왼쪽에 붙도록 함 */
     padding-top: 0;
     align-items: flex-start;
   }
 
-  .right-col {
-    grid-area: side;
-    width: auto;
-    height: calc(var(--cell) * 8);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    order: 0;
-  }
-
   .player-row {
-    width: 100%;
-    flex: 0 0 auto;
+    grid-area: names;
+    width: auto;
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
@@ -574,35 +573,37 @@ body {
   }
 
   #logPanel {
-    /* 이름 줄 아래 남는 세로 공간을 전부 차지해서 체스판 아래쪽과 정확히 맞춰짐 */
-    flex: 1 1 auto;
-    min-height: 0;
+    grid-area: log;
+    /* 오른쪽(2칸 몫) 가로 폭을 꽉 채우고, 세로는 이름 줄과 버튼 줄
+       사이 남는 공간을 그대로 채움(체스판 아래쪽과 자동으로 맞춰짐) */
     height: auto;
+    min-height: 0;
+    max-height: none;
     aspect-ratio: auto;
     width: 100%;
     overflow-y: auto;
   }
 
-  /* 하단 4버튼(옵션/기권/이전/다음)을 화면 전체 폭에 걸쳐 한 줄로,
-     아이콘(위)+텍스트(아래) 스타일로 배치 (chess.com 하단 바 참고) */
+  /* 버튼 4개(옵션/기권/이전/다음)를 로그판 바로 아래, 같은 폭 안에서
+     한 줄로 나열. 슬롯이 좁아지므로 아이콘/글자 크기를 더 줄임 */
   #prevBtn, #nextBtn, #resignBtn, #latestBtn, .xeon-controls .xeon-btn {
     background: transparent;
     border: none;
-    border-radius: 10px;
+    border-radius: 8px;
     color: #ccc;
-    font-size: 12px;
+    font-size: 10px;
     font-weight: 500;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    padding: 8px 4px;
+    gap: 2px;
+    padding: 6px 2px;
     transition: background 0.12s ease;
   }
   #prevBtn::before, #nextBtn::before, #resignBtn::before,
   #latestBtn::before, .xeon-controls .xeon-btn::before {
-    font-size: 20px;
+    font-size: 16px;
     line-height: 1;
   }
   #prevBtn:active, #nextBtn:active, #resignBtn:active, #latestBtn:active,
