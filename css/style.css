@@ -367,6 +367,12 @@ body {
   color: #fff;
 }
 
+/* 내 닉네임(ME) — 항상 주황색으로 강조 (턴 활성 상태여도 유지) */
+.player-name.me,
+.player-name.turn-active.me {
+  color: #ff9800;
+}
+
 .player-time { font-size: 13px; color: #888; }
 
 .chess-board {
@@ -389,6 +395,13 @@ body {
   user-select: none;
   position: relative;
   touch-action: none; /* 드래그 중 페이지 스크롤/줌 방지 */
+}
+
+/* 기물: 유니코드 텍스트 대신 SVG 이미지(cburnett 세트)를 배경으로 표시 */
+.cell.has-piece {
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 82%;
 }
 
 .white-cell { background-color: #ebecd0; color: #000; }
@@ -428,7 +441,9 @@ body {
   justify-content: center;
   width: var(--cell);
   height: var(--cell);
-  font-size: calc(var(--cell) * 0.633);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 82%;
   pointer-events: none;
   transform: translate(-50%, -50%);
   z-index: 2000;
@@ -503,13 +518,17 @@ body {
      가로로 나란히 배치(chess.com 하단 바의 옵션/기권/힌트/실행취소 자리에 대응)
 ========================================================= */
 @media (orientation: landscape) {
+  :root {
+    --cell: clamp(30px, 8.8vh, 82px);
+  }
+
   .game-layout {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    grid-template-rows: auto 1fr auto auto;
+    /* 오른쪽 컬럼(이름/로그)을 board 한 칸보다 넓게 잡아서 로그판 가로 폭을 늘림 */
+    grid-template-columns: 1fr 1fr 1fr 1.3fr;
+    grid-template-rows: auto auto auto;
     grid-template-areas:
-      "board board board names"
-      "board board board log"
+      "board board board side"
       "opt   resign prev  next"
       "admin admin admin admin";
     gap: 10px;
@@ -517,19 +536,31 @@ body {
     justify-content: stretch;
   }
 
-  /* 이 래퍼들은 이제 시각적 박스가 아니라 그리드 배치를 위한 통로 역할만 함 */
-  .left-col, .right-col, .history-nav {
+  /* left-col/history-nav만 통로 역할, right-col은 실제 박스를 유지해서
+     이름 줄 + 로그판을 세로로 묶어 체스판 높이에 정확히 맞춤 */
+  .left-col, .history-nav {
     display: contents;
   }
 
   .board-col {
     grid-area: board;
     padding-top: 0;
+    align-items: flex-start;
+  }
+
+  .right-col {
+    grid-area: side;
+    width: auto;
+    height: calc(var(--cell) * 8);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    order: 0;
   }
 
   .player-row {
-    grid-area: names;
-    width: auto;
+    width: 100%;
+    flex: 0 0 auto;
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
@@ -543,27 +574,36 @@ body {
   }
 
   #logPanel {
-    grid-area: log;
-    /* 1fr 행이 콘텐츠 높이에 따라 같이 늘어나 버리는 문제를 막기 위해,
-       보드 높이(8칸)에서 위쪽 이름 줄 높이만큼 뺀 값으로 고정하고
-       그 안에서만 스크롤되게 함 */
-    height: calc(var(--cell) * 8 - 84px);
-    min-height: 120px;
-    max-height: calc(var(--cell) * 8 - 84px);
+    /* 이름 줄 아래 남는 세로 공간을 전부 차지해서 체스판 아래쪽과 정확히 맞춰짐 */
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;
     aspect-ratio: auto;
+    width: 100%;
     overflow-y: auto;
   }
 
-  /* 하단 4버튼(옵션/기권/이전/다음)은 박스 없이 배경에 자연스럽게 녹아있다가
-     눌렀을 때만 살짝 밝아지는 chess.com 스타일로 표시함 */
+  /* 하단 4버튼(옵션/기권/이전/다음)을 화면 전체 폭에 걸쳐 한 줄로,
+     아이콘(위)+텍스트(아래) 스타일로 배치 (chess.com 하단 바 참고) */
   #prevBtn, #nextBtn, #resignBtn, #latestBtn, .xeon-controls .xeon-btn {
     background: transparent;
     border: none;
     border-radius: 10px;
     color: #ccc;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 4px;
     transition: background 0.12s ease;
+  }
+  #prevBtn::before, #nextBtn::before, #resignBtn::before,
+  #latestBtn::before, .xeon-controls .xeon-btn::before {
+    font-size: 20px;
+    line-height: 1;
   }
   #prevBtn:active, #nextBtn:active, #resignBtn:active, #latestBtn:active,
   .xeon-controls .xeon-btn:active {
@@ -575,6 +615,11 @@ body {
   #resignBtn {
     color: #ff9a9a;
   }
+  #resignBtn::before { content: "🏳️"; }        /* 기권 */
+  #prevBtn::before { content: "◀"; }            /* 이전 */
+  #nextBtn::before { content: "▶"; }            /* 다음 */
+  #latestBtn::before { content: "⏩"; }          /* 최신 수로 */
+  .xeon-controls .xeon-btn::before { content: "↩"; } /* 무르기 */
 
   #prevBtn { grid-area: prev; margin: 0; }
   #nextBtn { grid-area: next; margin: 0; }
@@ -592,14 +637,14 @@ body {
     flex-direction: column;
     align-items: stretch;
     justify-content: center;
-    gap: 4px;
+    gap: 2px;
     margin-top: 0 !important;
   }
   .xeon-controls .xeon-btn {
     width: 100%;
   }
   .xeon-undo-status {
-    font-size: 11px;
+    font-size: 10px;
     justify-content: center;
     text-align: center;
     color: #999;
@@ -919,11 +964,13 @@ body {
 .promo-piece-btn {
   width: 64px;
   height: 64px;
-  font-size: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #1e1e24;
+  background-color: #1e1e24;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 78%;
   border: 2px solid #444;
   border-radius: 10px;
   cursor: pointer;
