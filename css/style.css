@@ -525,7 +525,14 @@ body {
   :root {
     /* 버튼 줄이 오른쪽 컬럼 안으로 들어가면서 보드가 그 자리까지 침범해
        세로로 더 커지므로, 기준 비율도 그만큼 올림 */
-    --cell: clamp(30px, 10vh, 90px);
+    --cell: clamp(32px, 12vh, 104px);
+  }
+
+  .game-wrap {
+    /* 보드를 화면 왼쪽에 더 바짝 붙이고, 버튼 줄이 화면 아래쪽까지 꽉 차도록
+       바닥 여백도 줄임 */
+    padding-left: 4px;
+    padding-bottom: 10px;
   }
 
   .game-layout {
@@ -598,7 +605,7 @@ body {
     align-items: center;
     justify-content: center;
     gap: 2px;
-    padding: 6px 2px;
+    padding: 14px 2px;
     transition: background 0.12s ease;
   }
   #prevBtn::before, #nextBtn::before, #resignBtn::before,
@@ -616,15 +623,18 @@ body {
   #resignBtn {
     color: #ff9a9a;
   }
-  #resignBtn::before { content: "🏳️"; }        /* 기권 */
   #prevBtn::before { content: "◀"; }            /* 이전 */
   #nextBtn::before { content: "▶"; }            /* 다음 */
   #latestBtn::before { content: "⏩"; }          /* 최신 수로 */
   .xeon-controls .xeon-btn::before { content: "↩"; } /* 무르기 */
 
-  #prevBtn { grid-area: prev; margin: 0; }
-  #nextBtn { grid-area: next; margin: 0; }
-  #resignBtn { grid-area: resign; margin: 0; }
+  /* 이전/다음 버튼은 이모지만 남기고 원래 글자는 감춤 */
+  #prevBtn, #nextBtn { font-size: 0; }
+  #prevBtn::before, #nextBtn::before { font-size: 20px; }
+
+  #prevBtn { grid-area: prev; margin: 0; height: 100%; }
+  #nextBtn { grid-area: next; margin: 0; height: 100%; }
+  #resignBtn { grid-area: resign; margin: 0; height: 100%; }
 
   #latestBtn {
     grid-area: opt;
@@ -637,12 +647,14 @@ body {
     grid-area: opt;
     flex-direction: column;
     align-items: stretch;
-    justify-content: center;
+    justify-content: stretch;
     gap: 2px;
     margin-top: 0 !important;
+    height: 100%;
   }
   .xeon-controls .xeon-btn {
     width: 100%;
+    flex: 1;
   }
   .xeon-undo-status {
     font-size: 10px;
