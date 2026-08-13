@@ -96,11 +96,7 @@ let followLatest = true;
 let roomGoneHandled = false;
 let lastKnownMovesLen = 0;
 
-// 관전자용 판 반전 (로컬 상태, 서버에는 저장하지 않음)
-let spectatorFlip = false;
-
 // 무르기 UI용 동적 DOM 요소 (room.html에 별도 마크업이 없어도 동작하도록 스크립트에서 생성)
-let flipBtn = null;
 let undoBtn = null;
 let undoStatusEl = null;
 let undoCountdownEl = null;
@@ -229,16 +225,6 @@ function buildExtraUI() {
   const controls = document.createElement("div");
   controls.className = "xeon-controls";
 
-  flipBtn = document.createElement("button");
-  flipBtn.type = "button";
-  flipBtn.className = "xeon-btn";
-  flipBtn.textContent = "판 뒤집기";
-  flipBtn.style.display = "none";
-  flipBtn.addEventListener("click", () => {
-    spectatorFlip = !spectatorFlip;
-    renderBoardAndLog();
-  });
-
   undoBtn = document.createElement("button");
   undoBtn.type = "button";
   undoBtn.className = "xeon-btn";
@@ -252,7 +238,6 @@ function buildExtraUI() {
   undoStatusEl = document.createElement("span");
   undoStatusEl.className = "xeon-undo-status";
 
-  controls.appendChild(flipBtn);
   controls.appendChild(undoBtn);
   controls.appendChild(undoCountdownEl);
   controls.appendChild(undoStatusEl);
@@ -636,7 +621,7 @@ function render() {
 
   if (myRole === "host") myColor = room.hostColor || null;
   else if (myRole === "challenger") myColor = room.challengerColor || null;
-  else myColor = null; // 관전자 — 색이 없으므로 spectatorFlip 토글로만 반전
+  else myColor = null; // 관전자 — 색이 없으므로 항상 흰색 기준(방장이 아래쪽)으로 표시
 
   if (room.status === "waiting") {
     waitingPhase.style.display = "block";
@@ -725,8 +710,6 @@ function renderUndoUI() {
   // 기보를 과거로 넘겨서 보고 있는 중(무르기 요청 상황과는 무관) — 이 경우 무르기 버튼 대신
   // "최신 수로 돌아가기" 버튼을 같은 자리에 보여주고, 최신 수로 돌아오면 다시 무르기가 뜸
   const browsingHistory = viewIndex !== total;
-
-  flipBtn.style.display = myRole === "spectator" ? "inline-block" : "none";
 
   if (room.status !== "playing" || !isPlayer) {
     undoBtn.style.display = "none";
@@ -1149,7 +1132,7 @@ function renderBoardAndLog() {
 
 function drawBoard(boardGrid, lastMove, isMyTurnNow) {
   boardEl.innerHTML = "";
-  const flip = myColor === "black" || (myColor === null && spectatorFlip);
+  const flip = myColor === "black";
 
   for (let displayR = 0; displayR < 8; displayR++) {
     for (let displayC = 0; displayC < 8; displayC++) {
