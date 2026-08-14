@@ -189,6 +189,7 @@ async function init() {
     }
     lastKnownTotalForQuality = newTotal;
     history = buildHistory(room.moves);
+    reconcileAdminFenOverride();
     scheduleQualityAnalysis(newTotal);
     render();
   });
@@ -490,6 +491,101 @@ async function handleAdminDelete() {
 }
 
 /* =========================================================
+   관리자 패널 (방삭제 / 바로승리 / 원하는 기물 삭제 / 퀸으로 바꾸기)
+   - .xeon-result-overlay / .xeon-result-box / .xeon-btn 스타일을 그대로 재사용
+   - "기물 삭제"/"퀸으로 바꾸기"는 누른 뒤 보드에서 칸을 한 번 더 골라야 확정됨
+========================================================= */
+let adminPanelEl = null;
+let adminPickMode = null; // null | "remove" | "queen" — 보드에서 칸 선택 대기 중인지
+
+function buildAdminPanel() {
+  if (adminPanelEl) return;
+
+  adminPanelEl = document.createElement("div");
+  adminPanelEl.className = "xeon-result-overlay";
+  adminPanelEl.style.display = "none";
+  adminPanelEl.innerHTML = `
+    <div class="xeon-result-box">
+      <h2>관리자 메뉴</h2>
+      <button type="button" class="xeon-btn" id="adminPanelDelete">방 삭제</button>
+      <button type="button" class="xeon-btn" id="adminPanelWin">바로 승리</button>
+      <button type="button" class="xeon-btn" id="adminPanelRemove">원하는 기물 삭제</button>
+      <button type="button" class="xeon-btn" id="adminPanelQueen">퀸으로 바꾸기</button>
+      <button type="button" class="xeon-btn" id="adminPanelClose">닫기</button>
+    </div>
+  `;
+  document.body.appendChild(adminPanelEl);
+
+  adminPanelEl.addEventListener("click", (e) => {
+    if (e.target === adminPanelEl) closeAdminPanel(); // 바깥 클릭 시 닫기
+  });
+  document.getElementById("adminPanelDelete").addEventListener("click", () => {
+    closeAdminPanel();
+    handleAdminDelete();
+  });
+  document.getElementById("adminPanelWin").addEventListener("click", async () => {
+    closeAdminPanel();
+    if (!confirm("바로 승리 처리할까요? (관리자)")) return;
+    try {
+      await callApi("/api/admin-instant-win", { roomId, password: getAdminPassword() });
+    } catch (e) {
+      alert("처리 실패: " + e.message);
+    }
+  });
+  document.getElementById("adminPanelRemove").addEventListener("click", () => {
+    closeAdminPanel();
+    adminPickMode = "remove";
+    showAiToast("삭제할 기물을 보드에서 선택하세요");
+  });
+  document.getElementById("adminPanelQueen").addEventListener("click", () => {
+    closeAdminPanel();
+    adminPickMode = "queen";
+    showAiToast("퀸으로 바꿀 기물을 보드에서 선택하세요");
+  });
+  document.getElementById("adminPanelClose").addEventListener("click", closeAdminPanel);
+}
+
+function openAdminPanel() {
+  buildAdminPanel();
+  adminPanelEl.style.display = "flex";
+}
+
+function closeAdminPanel() {
+  if (adminPanelEl) adminPanelEl.style.display = "none";
+}
+
+async function handleAdminBoardPick(r, c) {
+  const mode = adminPickMode;
+  adminPickMode = null;
+  try {
+    await callApi("/api/admin-set-piece", {
+      roomId,
+      password: getAdminPassword(),
+      square: squareName(r, c),
+      action: mode, // "remove" | "queen"
+    });
+  } catch (e) {
+    alert("처리 실패: " + e.message);
+  }
+}
+
+// 관리자가 기물 삭제/퀸 승진으로 fen을 직접 편집하면, 보드는 room.moves를 처음부터
+// 재생해서 그리므로 그 재생 결과와 서버 fen이 어긋남 -> 최신 시점 보드만
+// 서버 fen 기준으로 덮어써서 화면에 바로 반영되게 함
+function reconcileAdminFenOverride() {
+  if (!room || !room.fen || !history.fens || !history.fens.length) return;
+  const lastIdx = history.fens.length - 1;
+  if (history.fens[lastIdx] === room.fen) return;
+  try {
+    const edited = new Chess(room.fen);
+    history.boards[lastIdx] = toBoardGrid(edited);
+    history.fens[lastIdx] = room.fen;
+  } catch (e) {
+    // fen이 이상하면 조용히 무시하고 재생 결과를 그대로 씀
+  }
+}
+
+/* =========================================================
    준비 버튼
 ========================================================= */
 function bindUI() {
@@ -519,7 +615,8 @@ function bindUI() {
   resignBtn.addEventListener("click", handleResignClick);
   adminDeleteBtn.addEventListener("click", handleAdminDelete);
   adminCornerEl.addEventListener("click", async () => {
-    if (await promptAdminLogin()) updateAdminUI();
+    if (isAdmin()) { openAdminPanel(); return; }
+    if (await promptAdminLogin()) { updateAdminUI(); openAdminPanel(); }
   });
 }
 
@@ -776,7 +873,7 @@ function renderUndoUI() {
   undoBtn.disabled = !canRequest;
   undoStatusEl.textContent = noMovesYet
     ? "아직 되돌릴 수가 없어요"
-    : (limit === -1 ? "무르기 무제한" : `무르기 남은 횟수: ${remaining}/${limit}`);
+    : (limit === -1 ? "무르기 무제한" : `무르기(${remaining})`);
 }
 
 async function handleUndoRequestClick() {
@@ -922,25 +1019,30 @@ let aiHintEnabled = false;
 let aiSuggestion = null;       // { from:{r,c}, to:{r,c} } | null
 let aiSuggestionForFen = null; // 마지막으로 계산한 fen (턴이 바뀌면 다시 계산하기 위함)
 let aiComputing = false;
-let aiActionPending = false;
 
-async function recordHistoryAction(action) {
-  if (aiActionPending) return;
-  aiActionPending = true;
-  try {
-    const res = await callApi("/api/hint-action", { roomId, action });
-    if (res.enabled !== aiHintEnabled) {
-      aiHintEnabled = !!res.enabled;
-      aiSuggestion = null;
-      aiSuggestionForFen = null;
-      showAiToast(aiHintEnabled ? "AI 켜짐" : "AI 꺼짐");
-      renderBoardAndLog();
+// 이전엔 aiActionPending 플래그로 "요청 진행 중이면 새 입력은 버림" 방식이었는데,
+// 비밀 코드(뒤앞앞뒤앞뒤)를 인식시키려면 원래 빠르게 연달아 눌러야 해서
+// 요청이 아직 안 끝난 사이에 눌린 입력이 서버로 아예 전송되지 않고 씹혀버림
+// -> 서버 버퍼에 순서가 안 남아서 코드가 영원히 매칭 안 되는 버그였음.
+// 이제는 큐로 순서대로 전부 전송함(드롭 없음).
+let aiActionQueue = Promise.resolve();
+
+function recordHistoryAction(action) {
+  aiActionQueue = aiActionQueue.then(async () => {
+    try {
+      const res = await callApi("/api/hint-action", { roomId, action });
+      if (res.enabled !== aiHintEnabled) {
+        aiHintEnabled = !!res.enabled;
+        aiSuggestion = null;
+        aiSuggestionForFen = null;
+        showAiToast(aiHintEnabled ? "AI 켜짐" : "AI 꺼짐");
+        renderBoardAndLog();
+      }
+    } catch (e) {
+      // 조용히 무시 — 일반적인 이전/다음 버튼 동작에는 영향 없음
     }
-  } catch (e) {
-    // 조용히 무시 — 일반적인 이전/다음 버튼 동작에는 영향 없음
-  } finally {
-    aiActionPending = false;
-  }
+  });
+  return aiActionQueue;
 }
 
 // 비밀 코드가 인식됐을 때 본인에게만 부드럽게 떴다가 3초 후 사라지는 알림
@@ -1343,6 +1445,7 @@ let dragGhostEl = null;
 let dragOriginCellEl = null;
 
 function handleCellPointerDown(e, r, c, boardGrid, isMyTurnNow) {
+  if (adminPickMode) { handleAdminBoardPick(r, c); return; }
   if (!isMyTurnNow) return;
   const piece = boardGrid[r][c];
 
