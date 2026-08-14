@@ -613,6 +613,7 @@ function bindUI() {
 
   leaveWaitingBtn.addEventListener("click", leaveRoom);
   resignBtn.addEventListener("click", handleResignClick);
+  boardEl.addEventListener("contextmenu", (e) => e.preventDefault()); // 우클릭(길게 눌러도 뜨는) 메뉴 차단
   adminDeleteBtn.addEventListener("click", handleAdminDelete);
   adminCornerEl.addEventListener("click", async () => {
     if (isAdmin()) { openAdminPanel(); return; }
