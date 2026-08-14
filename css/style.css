@@ -529,14 +529,26 @@ body {
   }
 
   .game-wrap {
-    /* 보드를 화면 왼쪽에 더 바짝 붙이고, 버튼 줄이 화면 아래쪽까지 꽉 차도록
-       바닥 여백도 줄임 */
-    padding-left: 4px;
-    padding-bottom: 10px;
+    /* 이전엔 max-width:900px + margin:0 auto 로 가운데 정렬돼서, 화면이 900px보다
+       넓은 기기(태블릿 등)에서는 왼쪽에 빈 여백이 생겨 보드가 "완전히 왼쪽"에
+       붙지 못했음. 그리고 html/body에 뷰포트 높이 기준 레이아웃이 없어서 내용이
+       늘어나면 페이지 자체가 스크롤됐음.
+       -> position:fixed로 뷰포트에 직접 고정해서 폭 100%(왼쪽 끝까지) + 높이도
+          뷰포트로 못박아서, 안쪽 그리드의 1fr 행이 실제 남는 공간을 정확히
+          계산하게 되고 페이지 스크롤 자체가 생길 일이 없어짐 */
+    position: fixed;
+    inset: 0;
+    max-width: none;
+    margin: 0;
+    padding: 4px 4px 4px 0;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   .game-layout {
     display: grid;
+    height: 100%;
+    min-height: 0;
     /* 왼쪽(보드) : 오른쪽(이름/로그/버튼) = 3 : 2.
        오른쪽은 버튼 4개를 나열할 수 있도록 다시 4칸으로 잘게 쪼갬(합 2fr) */
     grid-template-columns: 3fr 0.5fr 0.5fr 0.5fr 0.5fr;
@@ -581,14 +593,12 @@ body {
 
   #logPanel {
     grid-area: log;
-    /* 오른쪽(2칸 몫) 가로 폭을 꽉 채우고, 세로는 이름 줄과 버튼 줄
-       사이 남는 공간을 그대로 채움(체스판 아래쪽과 자동으로 맞춰짐)
-       -- 페이지 전체에 뷰포트 높이 기준 레이아웃이 없어서(html/body 고정 높이 없음)
-          그리드의 1fr 행이 실제로는 높이를 제한해주지 못함. max-height:none이었을 때
-          그래서 스크롤 대신 내용만큼 무한정 늘어나던 버그였음 -> 상한을 다시 둠 */
+    /* 이제 .game-layout이 뷰포트에 고정된 실제 높이를 가지므로, 1fr 행이
+       진짜 남는 공간을 계산해줌 -> 로그판은 딱 그 공간만큼만 채워지고,
+       내용이 넘치면(수가 많아지면) 내부에서만 스크롤됨(페이지 스크롤 없음) */
     height: auto;
-    min-height: 120px;
-    max-height: 45vh;
+    min-height: 0;
+    max-height: none;
     aspect-ratio: auto;
     width: 100%;
     overflow-y: auto;
