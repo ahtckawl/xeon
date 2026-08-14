@@ -582,10 +582,13 @@ body {
   #logPanel {
     grid-area: log;
     /* 오른쪽(2칸 몫) 가로 폭을 꽉 채우고, 세로는 이름 줄과 버튼 줄
-       사이 남는 공간을 그대로 채움(체스판 아래쪽과 자동으로 맞춰짐) */
+       사이 남는 공간을 그대로 채움(체스판 아래쪽과 자동으로 맞춰짐)
+       -- 페이지 전체에 뷰포트 높이 기준 레이아웃이 없어서(html/body 고정 높이 없음)
+          그리드의 1fr 행이 실제로는 높이를 제한해주지 못함. max-height:none이었을 때
+          그래서 스크롤 대신 내용만큼 무한정 늘어나던 버그였음 -> 상한을 다시 둠 */
     height: auto;
-    min-height: 0;
-    max-height: none;
+    min-height: 120px;
+    max-height: 45vh;
     aspect-ratio: auto;
     width: 100%;
     overflow-y: auto;
